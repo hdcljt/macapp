@@ -1,6 +1,6 @@
 /**
  * 编译 Electron 主进程和 preload 脚本
- * 使用 esbuild 直接编译，不需要 vite-plugin-electron
+ * 复制 splash.html / error.html 等静态资源
  */
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -41,6 +41,15 @@ async function buildElectron() {
     sourcemap: true,
     logLevel: 'info',
   });
+
+  // 复制静态资源（splash / error 页面）到 dist-electron
+  const staticFiles = ['splash.html', 'error.html'];
+  for (const file of staticFiles) {
+    const src = path.join(root, 'electron', file);
+    const dest = path.join(outdir, file);
+    fs.copyFileSync(src, dest);
+    console.log(`📄 复制 ${file} → dist-electron/`);
+  }
 
   console.log('✅ Electron 编译完成');
 }

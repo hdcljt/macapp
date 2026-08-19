@@ -1,16 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge } from 'electron';
 
-// 暴露安全的 API 给渲染进程
+// 暴露给 splash / error 页面的只读信息
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 平台信息
   platform: process.platform,
-
-  // 窗口控制
-  minimize: () => ipcRenderer.send('window:minimize'),
-  maximize: () => ipcRenderer.send('window:maximize'),
-  close: () => ipcRenderer.send('window:close'),
-
-  // 应用版本
   versions: {
     node: process.versions.node,
     chrome: process.versions.chrome,
