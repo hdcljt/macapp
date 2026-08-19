@@ -6,43 +6,25 @@
   "author": "Your Team",
   "license": "MIT",
   "scripts": {
-    "dev:vite": "vite",
     "dev:electron": "node scripts/build-electron.js && node scripts/launch-electron.js",
-    "dev": "node scripts/build-electron.js && concurrently -k -n VITE,ELECTRON -c blue,magenta \"npm run dev:vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_RUN_AS_NODE=0 npm run dev:electron\"",
+    "dev": "npm run dev:electron",
     "build:electron": "node scripts/build-electron.js",
-    "build:renderer": "vite build",
     "icon:generate": "node scripts/generate-icons.js",
-    "build": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder",
-    "build:mac": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac",
-    "build:win": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --win",
+    "build": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder",
+    "build:mac": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac",
+    "build:win": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --win",
     "build:win:zip": "node scripts/build-windows.js",
     "build:win:nsis": "node scripts/build-windows-installer.js",
-    "build:mac:universal": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac --universal",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "build:mac:universal": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac --universal"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
-    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.2.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@vitejs/plugin-react": "^6.0.5",
-    "autoprefixer": "^10.5.4",
-    "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
-    "postcss": "^8.5.26",
     "sharp": "^0.35.3",
-    "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "wait-on": "^9.1.0"
+    "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.yourcompany.macapp",
@@ -53,7 +35,6 @@
       "buildResources": "build"
     },
     "files": [
-      "dist/**/*",
       "dist-electron/**/*",
       "package.json"
     ],
