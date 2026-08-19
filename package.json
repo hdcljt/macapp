@@ -84,7 +84,7 @@
       "icon": "build/icon.png",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "identity": null,
+      "identity": "-",
       "darkModeSupport": true,
       "minimumSystemVersion": "10.15.0",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
@@ -97,10 +97,7 @@
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
         }
-      },
-      "binaries": [
-        "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
-      ]
+      }
     },
     "win": {
       "target": [

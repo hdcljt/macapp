@@ -159,9 +159,14 @@ npm run icon:generate
 
 ---
 
-## 🔐 代码签名（可选）
+## 🔐 代码签名（ad-hoc）
 
-当前配置为**内部使用，无需签名**。如果要发布到 App Store 或对外发布：
+当前配置采用 **ad-hoc 签名**（`mac.identity: "-"`），未使用 Apple Developer ID：
+- **目的**：让 Gatekeeper 把 arm64 产物识别为"未识别开发者"（可右键 → 打开绕过），而不是直接判"已损坏"无法打开
+- **适用场景**：内部测试 / 内部分发
+- **限制**：首次启动需右键 → 打开；对外发布或 App Store 上架仍需正式签名
+
+如果要发布到 App Store 或对外发布：
 
 ### Apple 开发者账号
 
@@ -214,10 +219,12 @@ npm config set ELECTRON_BUILDER_BINARIES_MIRROR https://npmmirror.com/mirrors/el
 - 压缩图片资源
 - 使用 7-Zip 压缩
 
-### Q5: 启动时 macOS 提示"无法验证开发者"
-未签名的应用。解决方案：
-- 用户右键 → 打开 → 仍要打开
-- 或配置代码签名
+### Q5: 启动时 macOS 提示"无法验证开发者"或"已损坏"
+- **"无法验证开发者"**：ad-hoc 签名产物的正常表现。解决方案：用户右键 → 打开 → 仍要打开
+- **"已损坏，无法打开"**：未签名产物 + 同架构直接执行的严格路径（常见于 arm64-only 构建在 Apple Silicon 上的首次启动）。解决方案：
+  - 确认 `mac.identity: "-"`（ad-hoc 签名），重新构建
+  - 或终端执行 `xattr -dr com.apple.quarantine /Applications/算粒AI助手.app`
+  - 或配置正式 Apple Developer ID 签名 + 公证
 
 ### Q6: 想要自动更新
 主流方案：[electron-updater](https://www.electron.build/auto-update)
