@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>无法连接</title>
+  <style>
+    :root {
+      --bg-start: #FFF5F5;
+      --bg-end: #FFE8E8;
+      --accent: #dc2626;
+      --text: #1a1a1a;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+        "SF Pro Display", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    body {
+      background: linear-gradient(160deg, var(--bg-start), var(--bg-end));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .hint {
+      font-size: 13px;
+      color: #666;
+      text-align: center;
+      max-width: 360px;
+      line-height: 1.6;
+    }
+    button {
+      font-size: 14px;
+      padding: 8px 24px;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover { opacity: 0.92; }
+  </style>
+</head>
+<body>
+  <div class="title">无法连接到助手服务</div>
+  <div class="hint">
+    请确认 <code>http://localhost:5195</code> 已启动后再试。
+    如果问题持续存在，请联系技术支持。
+  </div>
+  <button id="retry">重试</button>
+  <script>
+    // 主进程通过 webContents.executeJavaScript 注入触发，本页面仅为兜底
+    document.getElementById('retry').addEventListener('click', () => {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>
