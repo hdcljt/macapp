@@ -141,9 +141,10 @@ jobs:
       - name: 生成图标（含 .ico）
         run: npm run icon:generate
 
-      # 用本地脚本（已处理 Windows EPERM 锁 + 打包 ZIP）
-      - name: 打包 NSIS 安装程序 + 便携 ZIP
-        run: npm run build:win:nsis
+      # CI 是干净环境，直接走默认 builder（自动下载 + 解压 Electron，无 EPERM 问题）
+      # 本地 Windows 打包请用 npm run build:win:nsis（已处理 Defender EPERM 锁）
+      - name: 打包 NSIS installer + 便携 ZIP
+        run: npm run build:win
         env:
           ELECTRON_RUN_AS_NODE: '0'
 
@@ -151,7 +152,7 @@ jobs:
         shell: pwsh
         run: |
           echo "===== 产物列表 ====="
-          Get-ChildItem -Recurse release/*/ | Where-Object { -not $_.PSIsContainer } | Select-Object FullName, Length
+          Get-ChildItem -Recurse release/ | Where-Object { -not $_.PSIsContainer } | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB, 2)}} | Format-Table -AutoSize
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
