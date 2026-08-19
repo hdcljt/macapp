@@ -1,6 +1,6 @@
 # 算粒AI助手 - 桌面端
 
-> 基于 Electron + React + TypeScript 的 AI 桌面助手（macOS / Windows）
+> 基于 Electron + TypeScript 的 AI 桌面助手（macOS / Windows），启动后加载 `http://localhost:5195/agent-user/assistant`
 
 [![Build Status](https://github.com/hdcljt/macapp/actions/workflows/build-macos.yml/badge.svg)](https://github.com/hdcljt/macapp/actions/workflows/build-macos.yml)
 [![Latest Release](https://img.shields.io/github/v/release/hdcljt/macapp)](https://github.com/hdcljt/macapp/releases/latest)
@@ -19,9 +19,8 @@
 | 类别 | 技术 |
 |------|------|
 | 框架 | Electron 43 |
-| UI | React 19 + TypeScript 7 |
-| 构建 | Vite 8 |
-| 样式 | Tailwind CSS 4（CSS-based 配置） |
+| 语言 | TypeScript 7 |
+| 构建 | esbuild |
 | 打包 | electron-builder 26 |
 
 ## 📁 项目结构
@@ -29,24 +28,13 @@
 ```
 macapp/
 ├── electron/                 # Electron 主进程
-│   ├── main.ts              # 主进程入口
-│   └── preload.ts           # 预加载脚本
-├── src/                     # React 渲染层
-│   ├── components/          # UI 组件
-│   │   ├── TopBar.tsx
-│   │   ├── AIAppsCarousel.tsx
-│   │   ├── FeatureSection.tsx
-│   │   ├── FeatureCard.tsx
-│   │   ├── BottomTabBar.tsx
-│   │   └── InputBar.tsx
-│   ├── data/
-│   │   └── features.ts      # 数据定义
-│   ├── App.tsx              # 主组件
-│   ├── main.tsx             # React 入口
-│   └── index.css            # 全局样式 + Tailwind 4 @theme
+│   ├── main.ts              # 主进程入口（splash + main 双窗口）
+│   ├── preload.ts           # 预加载脚本
+│   ├── splash.html          # 加载动画
+│   └── error.html           # 加载失败错误页
 ├── scripts/
-│   ├── build-electron.js    # esbuild 编译主进程
-│   ├── launch-electron.js   # 启动脚本（修 ELECTRON_RUN_AS_NODE）
+│   ├── build-electron.js    # esbuild 编译主进程 + 复制静态资源
+│   ├── launch-electron.js   # 启动脚本
 │   ├── generate-icons.js    # 图标生成（含真 ICO）
 │   ├── build-windows.js     # Windows ZIP 打包（兼容旧版）
 │   └── build-windows-installer.js  # Windows NSIS installer
@@ -71,7 +59,7 @@ npm install
 npm run dev
 ```
 
-Vite 开发服务器 + Electron 窗口，修改代码自动热更新。
+Electron 直接加载外部 URL `http://localhost:5195/agent-user/assistant`。启动前请先在 5195 端口运行后端服务。
 
 ### 3. 构建打包
 

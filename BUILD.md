@@ -230,6 +230,13 @@ npm config set ELECTRON_BUILDER_BINARIES_MIRROR https://npmmirror.com/mirrors/el
 主流方案：[electron-updater](https://www.electron.build/auto-update)
 需要配置 `publish` 字段 + 代码签名。
 
+### Q7: 启动后看到 splash 一直转圈？
+
+可能原因：
+- 后端服务未启动：`http://localhost:5195` 必须可达
+- 后端启动中：等待后端 ready 后重试 5 秒，应用会自动重试 3 次
+- 防火墙阻塞：检查 localhost:5195 是否被本地防火墙拦截
+
 ---
 
 ## 📊 打包产物对比
