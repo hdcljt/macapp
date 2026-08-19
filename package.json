@@ -73,6 +73,13 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "build/icon.png",
@@ -80,8 +87,13 @@
       "gatekeeperAssess": false,
       "identity": null,
       "darkModeSupport": true,
+      "minimumSystemVersion": "10.15.0",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "extendInfo": {
         "NSHumanReadableCopyright": "Copyright © 2026 Your Team",
+        "NSMicrophoneUsageDescription": "算粒AI助手需要使用麦克风来识别语音指令",
+        "NSSpeechRecognitionUsageDescription": "算粒AI助手使用语音识别以理解您的指令",
+        "LSApplicationCategoryType": "public.app-category.productivity",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true

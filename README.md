@@ -2,6 +2,10 @@
 
 > 基于 Electron + React + TypeScript 的 AI 桌面助手（macOS / Windows）
 
+[![Build Status](https://github.com/hdcljt/macapp/actions/workflows/build-macos.yml/badge.svg)](https://github.com/hdcljt/macapp/actions/workflows/build-macos.yml)
+[![Latest Release](https://img.shields.io/github/v/release/hdcljt/macapp)](https://github.com/hdcljt/macapp/releases/latest)
+[![License](https://img.shields.io/github/license/hdcljt/macapp)](./LICENSE)
+
 ## ✨ 特性
 
 - 🎨 **macOS 原生体验**：自定义标题栏、毛玻璃效果、SF Pro 字体
