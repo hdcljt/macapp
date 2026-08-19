@@ -241,6 +241,27 @@ function showResult() {
   }
 }
 
+/**
+ * 临时给 package.json 设置 electronDist（指向预解压目录）
+ * 这样 builder 会跳过自动解压。跑完后还原。
+ * 注意：macOS job 不需要 electronDist（默认下载即可），所以这里只在 Windows 打包时临时注入。
+ */
+function withElectronDist(fn) {
+  const pkgPath = path.join(ROOT, 'package.json');
+  const original = fs.readFileSync(pkgPath, 'utf8');
+  const pkg = JSON.parse(original);
+  pkg.build = pkg.build || {};
+  pkg.build.electronDist = '.electron-cache/electron';
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  console.log('🔧 临时设置 package.json: electronDist = .electron-cache/electron');
+  try {
+    return fn();
+  } finally {
+    fs.writeFileSync(pkgPath, original);
+    console.log('🔧 已还原 package.json');
+  }
+}
+
 async function main() {
   log('🧹 清理旧产物');
   if (fs.existsSync(RELEASE_DIR)) {
@@ -250,8 +271,10 @@ async function main() {
 
   await prepareElectron();
   compileApp();
-  runBuilder();
-  fixEpfrem();
+  withElectronDist(() => {
+    runBuilder();
+    fixEpfrem();
+  });
   buildPortableZip();
   showResult();
 }

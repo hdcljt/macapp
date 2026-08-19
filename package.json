@@ -52,7 +52,6 @@
       "output": "release/${version}",
       "buildResources": "build"
     },
-    "electronDist": ".electron-cache/electron",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
