@@ -1,0 +1,28 @@
+# 应用图标占位说明
+
+实际打包前请将以下文件放入此目录：
+
+- `icon.icns`  - macOS 应用图标（512x512 以上）
+- `icon.ico`   - Windows 应用图标（256x256 以上）
+
+## 推荐生成方式
+
+1. 准备一张 1024x1024 的 PNG 源图
+2. 使用 [IconFly](https://iconfly.design/) 或 [iConvertIcons](https://iconverticons.com/) 一键生成
+3. macOS 图标集可以直接 `cp` 一张 PNG 然后用 `sips` 转换为 icns
+
+## 快速生成（macOS）
+
+```bash
+mkdir icon.iconset
+sips -z 1024 1024 icon.png --out icon.iconset/icon_512x512@2x.png
+sips -z 512 512   icon.png --out icon.iconset/icon_512x512.png
+sips -z 512 512   icon.png --out icon.iconset/icon_256x256@2x.png
+sips -z 256 256   icon.png --out icon.iconset/icon_256x256.png
+sips -z 128 128   icon.png --out icon.iconset/icon_128x128.png
+sips -z 64 64     icon.png --out icon.iconset/icon_32x32@2x.png
+sips -z 32 32     icon.png --out icon.iconset/icon_32x32.png
+iconutil -c icns icon.iconset -o icon.icns
+```
+
+如果暂时不需要图标，注释掉 `package.json` 中的 `build.mac.icon` 和 `build.win.icon` 字段即可跳过。

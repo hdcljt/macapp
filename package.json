@@ -1,0 +1,144 @@
+{
+  "name": "macapp",
+  "version": "0.1.0",
+  "description": "AI 桌面助手 - macOS",
+  "main": "dist-electron/main.js",
+  "author": "Your Team",
+  "license": "MIT",
+  "scripts": {
+    "dev:vite": "vite",
+    "dev:electron": "node scripts/build-electron.js && node scripts/launch-electron.js",
+    "dev": "node scripts/build-electron.js && concurrently -k -n VITE,ELECTRON -c blue,magenta \"npm run dev:vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_RUN_AS_NODE=0 npm run dev:electron\"",
+    "build:electron": "node scripts/build-electron.js",
+    "build:renderer": "vite build",
+    "icon:generate": "node scripts/generate-icons.js",
+    "build": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder",
+    "build:mac": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac",
+    "build:win": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --win",
+    "build:win:zip": "node scripts/build-windows.js",
+    "build:win:nsis": "node scripts/build-windows-installer.js",
+    "build:mac:universal": "npm run icon:generate && npm run build:electron && npm run build:renderer && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac --universal",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.yourcompany.macapp",
+    "productName": "算粒AI助手",
+    "copyright": "Copyright © 2026 Your Team",
+    "directories": {
+      "output": "release/${version}",
+      "buildResources": "build"
+    },
+    "electronDist": ".electron-cache/electron",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSHumanReadableCopyright": "Copyright © 2026 Your Team",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      },
+      "binaries": [
+        "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "算粒AI助手",
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeader": null,
+      "installerHeaderIcon": null
+    },
+    "dmg": {
+      "title": "算粒AI助手 ${version}",
+      "icon": "build/icon.png",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "writeUpdateInfo": false
+    },
+    "publish": null
+  }
+}

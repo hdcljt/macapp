@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="50%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#EC4899"/>
+    </linearGradient>
+    <linearGradient id="star" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0F9FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角矩形背景 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- 内部装饰圆 -->
+  <circle cx="512" cy="512" r="320" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-opacity="0.2"/>
+
+  <!-- AI 星形图标 -->
+  <g transform="translate(512, 512)">
+    <!-- 主星形 -->
+    <path d="M 0,-180 L 53,-56 L 180,-56 L 76,18 L 113,142 L 0,68 L -113,142 L -76,18 L -180,-56 L -53,-56 Z"
+          fill="url(#star)"
+          stroke="#FFFFFF"
+          stroke-width="4"
+          stroke-linejoin="round"/>
+
+    <!-- 中心圆点 -->
+    <circle cx="0" cy="0" r="32" fill="url(#bg)"/>
+  </g>
+
+  <!-- 闪光装饰 -->
+  <circle cx="800" cy="220" r="12" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="220" cy="800" r="8" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="850" cy="700" r="6" fill="#FFFFFF" opacity="0.5"/>
+</svg>
