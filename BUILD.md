@@ -7,9 +7,11 @@
 | 命令 | 用途 | 平台 |
 |------|------|------|
 | `npm run icon:generate` | 生成应用图标 | 任意 |
-| `npm run build:mac` | 构建 macOS .dmg（需 Mac） | macOS |
+| `npm run build:mac` | 构建 macOS .dmg + .zip（需 Mac） | macOS |
 | `npm run build:mac:universal` | 构建 macOS 通用包（Intel + Apple Silicon） | macOS |
-| `npm run build:win` | 构建 Windows 绿色版（解压即用） | Windows |
+| `npm run build:win` | 构建 Windows（默认 NSIS installer） | Windows |
+| `npm run build:win:zip` | 构建 Windows 便携 ZIP（兼容旧版） | Windows |
+| `npm run build:win:nsis` | 构建 Windows NSIS installer + 便携 ZIP（推荐） | Windows |
 | `npm run build` | 构建当前平台 | 当前 |
 
 ---
@@ -88,8 +90,30 @@ npm run build:mac:universal    # 通用二进制（推荐）
 ## 🪟 方案三：本地 Windows 构建
 
 ```bash
-npm run build:win
+# 推荐：NSIS 安装程序 + 便携 ZIP（已绕过 Defender EPERM）
+npm run build:win:nsis
+
+# 仅 ZIP（兼容旧打包方式）
+npm run build:win:zip
 ```
+
+### 产物说明
+
+`release/0.1.0/` 目录：
+- `算粒AI助手-0.1.0-x64-Setup.exe` - **NSIS 安装程序**（双击启动安装向导）
+- `win-unpacked/` - 便携版目录
+- `release/算粒AI助手-0.1.0-x64.zip` - 便携 ZIP 压缩包
+
+### 常见问题：Windows Defender EPERM
+
+`electron-builder` 26 在解压 Electron 二进制时会被 Windows Defender 锁定临时目录，抛出 `EPERM: rename` 错误。
+
+**解决方案**（已封装在 `scripts/build-windows-installer.js`）：
+1. 预先用 PowerShell `Expand-Archive` 解压 Electron 二进制到 `.electron-cache/electron`
+2. `package.json` 配置 `"electronDist": ".electron-cache/electron"` 让 builder 跳过自动解压
+3. 如果 NSIS `*.exe.tmp` 也被锁，用 PowerShell `Copy-Item` 复制为最终 `.exe`
+
+如在 GitHub Actions 上构建，CI runner 无 Defender 干扰，可直接用 `npm run build:win`。
 
 **注意**：Windows 上构建需要符号链接权限。如果遇到 `Cannot create symbolic link` 错误：
 
@@ -98,7 +122,7 @@ npm run build:win
 **方法 A：以管理员身份运行**
 ```powershell
 # PowerShell（管理员）
-npm run build:win
+npm run build:win:nsis
 ```
 
 **方法 B：开启开发者模式**
