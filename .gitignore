@@ -10,6 +10,12 @@ release/
 out/
 *.tsbuildinfo
 
+# electron-config-jsonc：用户本地编辑的副本（仓库根 config.jsonc 仍被 git 跟踪作为打包源）
+# - release/<version>/config.jsonc 是 electron-builder extraFiles 拷贝的输出副本
+# - dist-electron/config.jsonc 是构建过程中可能出现的副本
+release/**/config.jsonc
+dist-electron/config.jsonc
+
 # 日志
 logs/
 *.log
