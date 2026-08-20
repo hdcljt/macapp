@@ -188,6 +188,7 @@ function createMainWindow(config: LoadedConfig) {
   }
 }
 
+// loadConfig() 是 async（内部调 app.getPath('userData')），esbuild CJS 拒绝顶层 await，故在 whenReady 内 await
 app.whenReady().then(async () => {
   const config = await loadConfig();
   createMainWindow(config);
