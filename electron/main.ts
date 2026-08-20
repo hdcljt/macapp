@@ -15,6 +15,7 @@ let retryView: WebContentsView | null = null;
 let errorView: WebContentsView | null = null;
 let contentView: WebContentsView | null = null; // URL 内容也用 View 承载，避免默认 webContents 空白穿透
 let retryCount = 0;
+let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
 
 /** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部 */
 function showOnly(view: WebContentsView | null) {
@@ -96,13 +97,20 @@ function createMainWindow() {
   mainWindow.show();
 
   // URL 内容加载成功（用 contentView.webContents 监听，不是默认 webContents）
+  // 注意：did-finish-load 也会在 ERR_CONNECTION_REFUSED 触发的 ERR 页面加载完之后被触发，
+  // 因此必须配合 loadFailed 标志判断：仅当最近一次加载未失败时才切换到 contentView
   contentView.webContents.on('did-finish-load', () => {
+    if (loadFailed) {
+      console.log('[loadURL] content view did-finish-load but load was marked as failed, ignoring');
+      return;
+    }
     console.log('[loadURL] content view did-finish-load, switching to contentView');
     showOnly(contentView);
   });
 
   // URL 内容加载失败 → 进入重试或错误页
   contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    loadFailed = true;
     console.error(`[loadURL] ${errorCode} ${errorDescription} url=${validatedURL}`);
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
@@ -112,6 +120,8 @@ function createMainWindow() {
       );
       showOnly(retryView);
       setTimeout(() => {
+        // 重试前重置标志，让下次 did-finish-load（如果成功）能切换到 contentView
+        loadFailed = false;
         if (contentView && !contentView.webContents.isDestroyed()) {
           contentView.webContents.reload();
         }
@@ -145,6 +155,7 @@ function createMainWindow() {
   ipcMain.on('retry:request', () => {
     console.log('[retry:request] user triggered retry from error view');
     retryCount = 0;
+    loadFailed = false;
     showOnly(loadingView);
     if (contentView && !contentView.webContents.isDestroyed()) {
       contentView.webContents.reload();
