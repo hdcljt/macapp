@@ -63,9 +63,10 @@
   </div>
   <button id="retry">重试</button>
   <script>
-    // 主进程通过 webContents.executeJavaScript 注入触发，本页面仅为兜底
+    // 点击「重试」直接导航回目标 URL；主进程的 will-navigate 拦截会放行 5195 域名
+    const TARGET_URL = 'http://localhost:5195/agent-user/assistant';
     document.getElementById('retry').addEventListener('click', () => {
-      window.location.reload();
+      window.location.href = TARGET_URL;
     });
   </script>
 </body>

@@ -70,7 +70,9 @@ function createMainWindow() {
   mainWindow.loadURL(TARGET_URL);
 
   mainWindow.webContents.on('did-finish-load', () => {
-    retryCount = 0;
+    // 注意：失败重试时 Chromium 也会渲染错误页并触发 did-finish-load，
+    // 这里**不能**重置 retryCount，否则重试永远卡在 1/3。
+    // retryCount 由 showErrorPage 在用户点「重试」时重置。
     mainWindow?.show();
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.close();
@@ -123,6 +125,8 @@ function createMainWindow() {
 
 function showErrorPage() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // 用户看到错误页后可点「重试」重新尝试，此时清零让新一轮 3 次重试生效
+  retryCount = 0;
   // 关闭 splash：它已经展示过了，不再需要
   if (splashWindow && !splashWindow.isDestroyed()) {
     splashWindow.close();
