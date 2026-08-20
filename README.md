@@ -246,6 +246,56 @@ export const aiApps: AIApp[] = [
 
 在 `src/data/features.ts` 的 `featureSections` 中添加。
 
+## 📋 日志文件
+
+应用启动后会在 `userData/logs/main.log` 写入日志，便于排查启动问题：
+
+- **macOS**：`~/Library/Application Support/算粒AI助手/logs/main.log`
+- **Windows**：`%APPDATA%\算粒AI助手\logs\main.log`
+
+> dev 模式下路径使用 `package.json` 的 `name` 字段（`macapp`），而非 `productName`；打包后才会用产品名目录。
+
+### 日志格式
+
+每行格式：`2026-08-21T12:34:56.789 [LEVEL] [module] message`
+
+- 时间戳：本地时区 ISO 8601 毫秒精度
+- 级别：`DEBUG` / `INFO` / `WARN` / `ERROR`
+- 模块：`main` / `config` / `renderer` 等
+
+每次启动写入 header：`=== log started at <ISO> (<platform>, electron <version>) ===`
+进程退出前写入 footer：`=== log ended at <ISO> ===`
+
+### 日志轮转
+
+- 单文件上限 5MB
+- 超过时轮转：`main.log` → `main.log.1` → `main.log.2` → `main.log.3`
+- 最老的 `main.log.3` 被丢弃
+- 最多保留 3 个备份，总量约 20MB
+
+### 渲染进程日志
+
+渲染进程（splash / retry / error 页面）可通过 `window.electronAPI.log(level, message)` 写入日志，模块名标记为 `renderer`：
+
+```js
+window.electronAPI.log('error', 'splash shown after 5s');
+window.electronAPI.log('warn', 'retry attempt 2/3');
+```
+
+### 常见用法
+
+```bash
+# macOS：实时查看最新日志
+tail -f ~/Library/Application\ Support/算粒AI助手/logs/main.log
+
+# Windows：查看最新日志
+type %APPDATA%\算粒AI助手\logs\main.log
+
+# 清空日志（保留目录）
+rm ~/Library/Application\ Support/算粒AI助手/logs/main.log*
+del /Q %APPDATA%\算粒AI助手\logs\main.log*
+```
+
 ## 🐛 常见问题
 
 ### Q1: Windows 上打包 EPERM 错误？
