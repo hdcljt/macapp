@@ -234,10 +234,10 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
  * 加载并校验 config.jsonc
  * 失败时 console.error + process.exit(1)
  */
-export function loadConfig(): LoadedConfig {
+export async function loadConfig(): Promise<LoadedConfig> {
   let configPath: string;
   try {
-    configPath = resolveConfigPath();
+    configPath = await resolveConfigPath();
   } catch (err) {
     if (err instanceof ConfigNotFoundError) {
       console.error('[config] ✗ 未找到 config.jsonc');
