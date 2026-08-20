@@ -43,15 +43,13 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "config.jsonc",
+        "to": "config.jsonc"
       }
     ],
     "mac": {
-      "extraResources": [
-        {
-          "from": "config.jsonc",
-          "to": "config.jsonc"
-        }
-      ],
       "category": "public.app-category.productivity",
       "target": [
         {
@@ -103,13 +101,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
-      "extraFiles": [
-        {
-          "from": "config.jsonc",
-          "to": "config.jsonc"
-        }
-      ]
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
