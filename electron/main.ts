@@ -6,8 +6,9 @@ declare const __dirname: string;
 
 import { loadConfig } from './config';
 
-// 顶层 await：在 app.whenReady() 之前完成；失败由 config.ts 内部 process.exit(1)
-const config = await loadConfig();
+// loadConfig() 同步函数（失败由 config.ts 内部 process.exit(1)），无需 await
+// 不能用 await 顶层调用：esbuild 0.28 + format:cjs 拒绝顶层 await（即使包 async IIFE）
+const config = loadConfig();
 const isDev = !app.isPackaged;
 const TARGET_URL = config.targetUrl;
 const MAX_RETRIES = config.maxRetries;
