@@ -91,29 +91,56 @@ function getBundledConfigPath(): string {
 }
 
 /**
- * 解析 config.jsonc 实际路径（2 级 fallback）
+ * 解析 config.jsonc 实际路径
+ * - dev 模式（app.isPackaged === false）：cwd/config.jsonc（保持现状）
+ * - 生产模式：
+ *   1) userData/config.jsonc 存在 → 用它（用户编辑生效）
+ *   2) 不存在 → 从 bundled default 复制到 userData
+ *   3) 复制失败（权限/磁盘） → 降级读 bundled（编辑不持久化但能跑）
+ *   4) bundled 也缺失 → 抛 ConfigNotFoundError
  */
-export function resolveConfigPath(): string {
-  const triedPaths: string[] = [];
-
-  // Tier 1: 平台特定 exe-dir 路径
-  const tier1 = getExecDirConfigPath();
-  triedPaths.push(tier1);
-  if (fs.existsSync(tier1)) {
-    return tier1;
-  }
-
-  // Tier 2: dev 模式 fallback（cwd）
+export async function resolveConfigPath(): Promise<string> {
+  // dev 模式：cwd 行为保持现状
   if (!app.isPackaged) {
-    const tier2 = path.join(process.cwd(), 'config.jsonc');
-    triedPaths.push(tier2);
-    if (fs.existsSync(tier2)) {
-      return tier2;
+    const devPath = path.join(process.cwd(), 'config.jsonc');
+    if (fs.existsSync(devPath)) {
+      return devPath;
     }
+    throw new ConfigNotFoundError([devPath], devPath);
   }
 
-  // 都未命中：构造错误信息
-  throw new ConfigNotFoundError(triedPaths, tier1);
+  // 生产模式：userData 优先
+  const userConfigPath = path.join(app.getPath('userData'), 'config.jsonc');
+
+  if (fs.existsSync(userConfigPath)) {
+    return userConfigPath;
+  }
+
+  // userData 没有 → 从 bundled 复制
+  const bundledPath = getBundledConfigPath();
+
+  if (!fs.existsSync(bundledPath)) {
+    throw new ConfigNotFoundError(
+      [userConfigPath, bundledPath],
+      userConfigPath,
+    );
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(userConfigPath), { recursive: true });
+    fs.copyFileSync(bundledPath, userConfigPath);
+    console.log(`[config] ✓ 已初始化用户配置: ${userConfigPath}`);
+    return userConfigPath;
+  } catch (err) {
+    // 复制失败（权限/磁盘/只读卷）→ 降级读 bundled
+    console.warn(
+      `[config] ⚠ 无法写入 userData: ${(err as Error).message}`,
+    );
+    console.warn(
+      `[config]   回退到 bundled default（用户编辑不会持久化）: ${bundledPath}`,
+    );
+    return bundledPath;
+  }
 }
 
 /**
