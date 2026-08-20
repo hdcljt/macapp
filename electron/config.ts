@@ -2,6 +2,9 @@ import { app } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { parse, ParseError } from 'jsonc-parser';
+import { logger } from './logger';
+
+const log = logger.child('config');
 
 /**
  * 应用配置 schema（7 字段，全部必填）
@@ -129,15 +132,15 @@ export async function resolveConfigPath(): Promise<string> {
   try {
     fs.mkdirSync(path.dirname(userConfigPath), { recursive: true });
     fs.copyFileSync(bundledPath, userConfigPath);
-    console.log(`[config] ✓ 已初始化用户配置: ${userConfigPath}`);
+    log.info(`✓ 已初始化用户配置: ${userConfigPath}`);
     return userConfigPath;
   } catch (err) {
     // 复制失败（权限/磁盘/只读卷）→ 降级读 bundled
-    console.warn(
-      `[config] ⚠ 无法写入 userData: ${(err as Error).message}`,
+    log.warn(
+      `⚠ 无法写入 userData: ${(err as Error).message}`,
     );
-    console.warn(
-      `[config]   回退到 bundled default（用户编辑不会持久化）: ${bundledPath}`,
+    log.warn(
+      `回退到 bundled default（用户编辑不会持久化）: ${bundledPath}`,
     );
     return bundledPath;
   }
@@ -290,10 +293,10 @@ export async function loadConfig(): Promise<LoadedConfig> {
     process.exit(1);
   }
 
-  console.log(`[config] ✓ 已加载 ${configPath}`);
-  console.log(`[config]   targetUrl: ${validated.targetUrl}`);
-  console.log(`[config]   窗口: ${validated.width}x${validated.height} (min ${validated.minWidth}x${validated.minHeight})`);
-  console.log(`[config]   重试: ${validated.maxRetries} 次, 间隔 ${validated.retryDelayMs}ms`);
+  log.info(`✓ 已加载 ${configPath}`);
+  log.info(`targetUrl: ${validated.targetUrl}`);
+  log.info(`窗口: ${validated.width}x${validated.height} (min ${validated.minWidth}x${validated.minHeight})`);
+  log.info(`重试: ${validated.maxRetries} 次, 间隔 ${validated.retryDelayMs}ms`);
 
   return { ...validated, allowedOriginPrefix };
 }

@@ -6,6 +6,7 @@ declare const __dirname: string;
 
 import { loadConfig } from './config';
 import type { LoadedConfig } from './config';
+import { logger, initLogger, registerLogHandlers, closeLogger } from './logger';
 
 let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
@@ -14,6 +15,8 @@ let errorView: WebContentsView | null = null;
 let contentView: WebContentsView | null = null; // URL 内容也用 View 承载，避免默认 webContents 空白穿透
 let retryCount = 0;
 let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
+
+const log = logger.child('main');
 
 /** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部 */
 function showOnly(view: WebContentsView | null) {
@@ -105,20 +108,20 @@ function createMainWindow(config: LoadedConfig) {
   // 因此必须配合 loadFailed 标志判断：仅当最近一次加载未失败时才切换到 contentView
   contentView.webContents.on('did-finish-load', () => {
     if (loadFailed) {
-      console.log('[loadURL] content view did-finish-load but load was marked as failed, ignoring');
+      log.debug('content view did-finish-load but load was marked as failed, ignoring');
       return;
     }
-    console.log('[loadURL] content view did-finish-load, switching to contentView');
+    log.info('content view did-finish-load, switching to contentView');
     showOnly(contentView);
   });
 
   // URL 内容加载失败 → 进入重试或错误页
   contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     loadFailed = true;
-    console.error(`[loadURL] ${errorCode} ${errorDescription} url=${validatedURL}`);
+    log.error(`content view did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
-      console.warn(`[retry ${retryCount}/${MAX_RETRIES}]`);
+      log.warn(`retry ${retryCount}/${MAX_RETRIES}`);
       retryView?.webContents.executeJavaScript(
         `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`
       );
@@ -131,13 +134,13 @@ function createMainWindow(config: LoadedConfig) {
         }
       }, RETRY_DELAY_MS);
     } else {
-      console.error(`[loadURL] gave up after ${MAX_RETRIES} retries, switching to error view`);
+      log.error(`gave up after ${MAX_RETRIES} retries, switching to error view`);
       showOnly(errorView);
     }
   });
 
   contentView.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[render-process-gone]', details);
+    log.error(`render-process-gone: ${JSON.stringify(details)}`);
   });
 
   contentView.webContents.setWindowOpenHandler(({ url }) => {
@@ -151,13 +154,13 @@ function createMainWindow(config: LoadedConfig) {
   contentView.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(ALLOWED_ORIGIN_PREFIX)) {
       event.preventDefault();
-      console.warn(`[will-navigate blocked] ${url}`);
+      log.warn(`will-navigate blocked: ${url}`);
     }
   });
 
   // 错误页点「重试」→ IPC 回主进程
   ipcMain.on('retry:request', () => {
-    console.log('[retry:request] user triggered retry from error view');
+    log.info('user triggered retry from error view');
     retryCount = 0;
     loadFailed = false;
     showOnly(loadingView);
@@ -190,14 +193,24 @@ function createMainWindow(config: LoadedConfig) {
 
 // loadConfig() 是 async（内部调 app.getPath('userData')），esbuild CJS 拒绝顶层 await，故在 whenReady 内 await
 app.whenReady().then(async () => {
+  initLogger();
+  log.info('app ready');
+  registerLogHandlers();
   const config = await loadConfig();
+  log.info(`config loaded: ${config.width}x${config.height}`);
   createMainWindow(config);
+  log.info(`createMainWindow end: ${config.width}x${config.height}`);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow(config);
     }
   });
+});
+
+app.on('before-quit', () => {
+  log.info('app quitting');
+  closeLogger();
 });
 
 app.on('window-all-closed', () => {
