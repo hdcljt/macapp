@@ -43,7 +43,7 @@ async function buildElectron() {
   });
 
   // 复制静态资源（splash / retry / error 页面）到 dist-electron
-  const staticFiles = ['splash.html', 'retry.html', 'error.html'];
+  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js'];
   for (const file of staticFiles) {
     const src = path.join(root, 'electron', file);
     const dest = path.join(outdir, file);

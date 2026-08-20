@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
   <title>无法连接</title>
   <style>
     :root {
@@ -62,12 +62,6 @@
     如果问题持续存在，请联系技术支持。
   </div>
   <button id="retry">重试</button>
-  <script>
-    // 点击「重试」直接导航回目标 URL；主进程的 will-navigate 拦截会放行 5195 域名
-    const TARGET_URL = 'http://localhost:5195/agent-user/assistant';
-    document.getElementById('retry').addEventListener('click', () => {
-      window.location.href = TARGET_URL;
-    });
-  </script>
+  <script src="error.js"></script>
 </body>
 </html>
