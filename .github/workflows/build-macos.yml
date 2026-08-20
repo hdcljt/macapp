@@ -46,7 +46,7 @@ jobs:
         run: npm run icon:generate
 
       - name: 打包 macOS (${{ matrix.arch }})
-        run: npm run build:mac -- --${{ matrix.arch }}
+        run: npm run build:mac -- --${{ matrix.arch }} --publish never
         env:
           # 内部分发，禁用签名与公证
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -98,7 +98,7 @@ jobs:
       - run: npm run icon:generate
 
       - name: 打包 Universal
-        run: npm run build:mac:universal
+        run: npm run build:mac:universal -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           APPLE_ID: ""
@@ -144,7 +144,7 @@ jobs:
       # CI 是干净环境，直接走默认 builder（自动下载 + 解压 Electron，无 EPERM 问题）
       # 本地 Windows 打包请用 npm run build:win:nsis（已处理 Defender EPERM 锁）
       - name: 打包 NSIS installer + 便携 ZIP
-        run: npm run build:win
+        run: npm run build:win -- --publish never
         env:
           ELECTRON_RUN_AS_NODE: '0'
 
