@@ -120,6 +120,59 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 > 注：macOS 专属 UI 必须在 Mac 上测试。建议在 Windows 上开发，Mac 上验证。
 
+## ⚙️ 配置文件
+
+应用通过 `config.jsonc` 实现行为配置。该文件位于**安装目录的可执行程序同级位置**：
+
+- **macOS**: `<productFilename>.app/Contents/config.jsonc`
+  - 例如：`/Applications/算粒AI助手.app/Contents/config.jsonc`（编辑此文件需要管理员权限）
+- **Windows**: `<exe-dir>/config.jsonc`
+  - 例如：`C:\Program Files\算粒AI助手\config.jsonc`
+
+### 字段说明
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `targetUrl` | string | 启动后 contentView 加载的 URL，仅接受 `http://` 与 `https://` 协议 |
+| `maxRetries` | integer ≥ 0 | URL 加载失败时的最大重试次数（`0` 表示不重试，直接进入错误页） |
+| `retryDelayMs` | integer ≥ 0 | 每次重试间隔毫秒数 |
+| `width` | integer ≥ `minWidth` | BrowserWindow 初始宽度（像素） |
+| `height` | integer ≥ `minHeight` | BrowserWindow 初始高度（像素） |
+| `minWidth` | integer ≥ 1 | BrowserWindow 最小宽度（像素） |
+| `minHeight` | integer ≥ 1 | BrowserWindow 最小高度（像素） |
+
+### 格式
+
+`config.jsonc` 是 JSONC 格式（支持 `//` 单行注释），示例：
+
+```jsonc
+{
+  // 目标 URL：启动后加载该地址
+  "targetUrl": "http://localhost:5195/agent-user/assistant",
+  // 加载失败时最多重试 3 次
+  "maxRetries": 3,
+  // 每次重试间隔 5 秒
+  "retryDelayMs": 5000,
+  // 窗口尺寸
+  "width": 1180,
+  "height": 820,
+  "minWidth": 900,
+  "minHeight": 700
+}
+```
+
+### 加载规则
+
+- **缺失**：`config.jsonc` 不存在时，启动失败（exit 1）并打印尝试路径
+- **字段缺失或类型错误**：启动失败（exit 1）并打印具体校验错误
+- **修改后**：重启应用生效（不热重载，运行时不会重新读取）
+
+> 注：所有校验错误都是硬失败，不会使用默认值兜底。
+
+### 仓库构建
+
+构建时 `electron-builder` 通过 `extraFiles` 把仓库根 `config.jsonc` 拷贝到 install root（即上述安装目录位置）。若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用。
+
 ## 🌐 跨平台开发流程
 
 ```
