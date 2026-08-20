@@ -5,15 +5,7 @@ import path from 'node:path';
 declare const __dirname: string;
 
 import { loadConfig } from './config';
-
-// loadConfig() 同步函数（失败由 config.ts 内部 process.exit(1)），无需 await
-// 不能用 await 顶层调用：esbuild 0.28 + format:cjs 拒绝顶层 await（即使包 async IIFE）
-const config = loadConfig();
-const isDev = !app.isPackaged;
-const TARGET_URL = config.targetUrl;
-const MAX_RETRIES = config.maxRetries;
-const RETRY_DELAY_MS = config.retryDelayMs;
-const ALLOWED_ORIGIN_PREFIX = config.allowedOriginPrefix;
+import type { LoadedConfig } from './config';
 
 let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
@@ -67,7 +59,13 @@ function createUrlView(url: string): WebContentsView {
   return view;
 }
 
-function createMainWindow() {
+function createMainWindow(config: LoadedConfig) {
+  const isDev = !app.isPackaged;
+  const TARGET_URL = config.targetUrl;
+  const MAX_RETRIES = config.maxRetries;
+  const RETRY_DELAY_MS = config.retryDelayMs;
+  const ALLOWED_ORIGIN_PREFIX = config.allowedOriginPrefix;
+
   mainWindow = new BrowserWindow({
     width: config.width,
     height: config.height,
@@ -190,12 +188,13 @@ function createMainWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  createMainWindow();
+app.whenReady().then(async () => {
+  const config = await loadConfig();
+  createMainWindow(config);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      createMainWindow(config);
     }
   });
 });
