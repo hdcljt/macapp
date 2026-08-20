@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+  <title>正在重试</title>
+  <style>
+    :root {
+      --bg-start: #E8F4FF;
+      --bg-mid: #F0E8FF;
+      --bg-end: #FFE8F0;
+      --accent: #6366f1;
+      --accent-2: #ec4899;
+      --text: #1a1a1a;
+    }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+        "SF Pro Display", "Helvetica Neue", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
+    body {
+      background: linear-gradient(160deg,
+        var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+    }
+    .logo {
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 3px solid rgba(99, 102, 241, 0.2);
+      border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    .label {
+      font-size: 13px;
+      color: #555;
+      letter-spacing: 0.4px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">算粒 AI 助手</div>
+  <div class="spinner" aria-hidden="true"></div>
+  <div class="label">正在重试…</div>
+</body>
+</html>
