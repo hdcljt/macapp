@@ -4,10 +4,15 @@ import path from 'node:path';
 // CJS 模式下 __dirname 是内置的；ESM 模式下需要用 import.meta.url
 declare const __dirname: string;
 
+import { loadConfig } from './config';
+
+// 顶层 await：在 app.whenReady() 之前完成；失败由 config.ts 内部 process.exit(1)
+const config = await loadConfig();
 const isDev = !app.isPackaged;
-const TARGET_URL = 'http://localhost:5195/agent-user/assistant';
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 5000;
+const TARGET_URL = config.targetUrl;
+const MAX_RETRIES = config.maxRetries;
+const RETRY_DELAY_MS = config.retryDelayMs;
+const ALLOWED_ORIGIN_PREFIX = config.allowedOriginPrefix;
 
 let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
@@ -63,10 +68,10 @@ function createUrlView(url: string): WebContentsView {
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 900,
-    minHeight: 700,
+    width: config.width,
+    height: config.height,
+    minWidth: config.minWidth,
+    minHeight: config.minHeight,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#FFFFFF',
@@ -145,7 +150,7 @@ function createMainWindow() {
 
   // 拦截非目标 origin 的导航
   contentView.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('http://localhost:5195/')) {
+    if (!url.startsWith(ALLOWED_ORIGIN_PREFIX)) {
       event.preventDefault();
       console.warn(`[will-navigate blocked] ${url}`);
     }
