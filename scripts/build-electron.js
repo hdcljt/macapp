@@ -16,30 +16,35 @@ async function buildElectron() {
     fs.mkdirSync(outdir, { recursive: true });
   }
 
-  // 编译 main.ts
-  await build({
-    entryPoints: [path.join(root, 'electron/main.ts')],
-    outfile: path.join(outdir, 'main.js'),
+  // esbuild 配置说明：
+  // - mainFields: ['module', 'main'] 让 esbuild 优先选 ESM 源（jsonc-parser 的
+  //   lib/esm/main.js 使用静态 import，可被 esbuild 正确内联）。默认 mainFields
+  //   会选 UMD（lib/umd/main.js），但 UMD 闭包内的 require('./impl/format')
+  //   是动态调用，esbuild 无法静态内联，导致运行时 dist-electron/impl/format.js
+  //   不存在而抛 Cannot find module。
+  const buildOptions = {
     bundle: true,
     platform: 'node',
     target: 'node18',
     format: 'cjs',
+    mainFields: ['module', 'main'],
     external: ['electron'],
     sourcemap: true,
     logLevel: 'info',
+  };
+
+  // 编译 main.ts
+  await build({
+    ...buildOptions,
+    entryPoints: [path.join(root, 'electron/main.ts')],
+    outfile: path.join(outdir, 'main.js'),
   });
 
   // 编译 preload.ts
   await build({
+    ...buildOptions,
     entryPoints: [path.join(root, 'electron/preload.ts')],
     outfile: path.join(outdir, 'preload.js'),
-    bundle: true,
-    platform: 'node',
-    target: 'node18',
-    format: 'cjs',
-    external: ['electron'],
-    sourcemap: true,
-    logLevel: 'info',
   });
 
   // 复制静态资源（splash / retry / error 页面）到 dist-electron
