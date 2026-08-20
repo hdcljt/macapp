@@ -35,9 +35,14 @@ function createSplashWindow() {
 
   splashWindow.setMenuBarVisibility(false);
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
-  splashWindow.once('ready-to-show', () => {
-    splashWindow?.show();
-  });
+  // ready-to-show 在某些 Electron 版本下不会触发；用 did-finish-load 兜底
+  const showSplash = () => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.show();
+    }
+  };
+  splashWindow.once('ready-to-show', showSplash);
+  splashWindow.webContents.once('did-finish-load', showSplash);
   splashWindow.on('closed', () => {
     splashWindow = null;
   });
@@ -83,6 +88,7 @@ function createMainWindow() {
         }
       }, RETRY_DELAY_MS);
     } else {
+      console.error(`[loadURL] gave up after ${MAX_RETRIES} retries, switching to error page`);
       showErrorPage();
     }
   });
@@ -117,10 +123,21 @@ function createMainWindow() {
 
 function showErrorPage() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.loadFile(path.join(__dirname, 'error.html'));
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
+  // 关闭 splash：它已经展示过了，不再需要
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  const errorPath = path.join(__dirname, 'error.html');
+  console.log(`[showErrorPage] loading ${errorPath}`);
+  // 无条件先显示 mainWindow，避免 ready-to-show 已触发过导致 once 不再触发
+  mainWindow.show();
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[showErrorPage] error.html loaded');
   });
+  mainWindow.webContents.once('did-fail-load', (_e, code, desc) => {
+    console.error(`[showErrorPage] load failed: ${code} ${desc}`);
+  });
+  mainWindow.loadFile(errorPath);
 }
 
 app.whenReady().then(() => {
