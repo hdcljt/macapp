@@ -2,12 +2,12 @@
  * 编译 Electron 主进程和 preload 脚本
  * 复制 splash.html / error.html 等静态资源
  */
-import { build } from 'esbuild';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import fs from 'node:fs';
+const { build } = require('esbuild');
+const path = require('node:path');
+const fs = require('node:fs');
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// CJS 模式下 __dirname 是内置的；ESM 模式下需要用 import.meta.url
+
 const root = path.resolve(__dirname, '..');
 
 async function buildElectron() {
