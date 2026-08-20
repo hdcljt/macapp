@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     electron: process.versions.electron,
   },
   retry: () => ipcRenderer.send('retry:request'),
+  log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => {
+    ipcRenderer.invoke('log:write', level, message);
+  },
 });
