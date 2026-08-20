@@ -2,10 +2,7 @@ name: Build Desktop Apps
 
 on:
   push:
-    branches: [main, develop]
     tags: ['v*']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
