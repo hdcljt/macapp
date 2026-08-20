@@ -45,6 +45,12 @@
         "to": "icon.png"
       }
     ],
+    "extraFiles": [
+      {
+        "from": "config.jsonc",
+        "to": "config.jsonc"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
