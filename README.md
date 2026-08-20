@@ -133,17 +133,17 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
-| `targetUrl` | string | 启动后 contentView 加载的 URL，仅接受 `http://` 与 `https://` 协议 |
+| `targetUrl` | string | 启动后 contentView 加载的 URL，仅接受以 `http://` 或 `https://` 开头的合法 URL 语法 |
 | `maxRetries` | integer ≥ 0 | URL 加载失败时的最大重试次数（`0` 表示不重试，直接进入错误页） |
 | `retryDelayMs` | integer ≥ 0 | 每次重试间隔毫秒数 |
-| `width` | integer ≥ `minWidth` | BrowserWindow 初始宽度（像素） |
-| `height` | integer ≥ `minHeight` | BrowserWindow 初始高度（像素） |
+| `width` | integer ≥ 1 且 ≥ `minWidth` | BrowserWindow 初始宽度（像素） |
+| `height` | integer ≥ 1 且 ≥ `minHeight` | BrowserWindow 初始高度（像素） |
 | `minWidth` | integer ≥ 1 | BrowserWindow 最小宽度（像素） |
 | `minHeight` | integer ≥ 1 | BrowserWindow 最小高度（像素） |
 
 ### 格式
 
-`config.jsonc` 是 JSONC 格式（支持 `//` 单行注释），示例：
+`config.jsonc` 是 JSONC 格式（支持 `//` 单行注释、`/* */` 块注释、尾随逗号），示例：
 
 ```jsonc
 {
@@ -164,6 +164,8 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 ### 加载规则
 
 - **缺失**：`config.jsonc` 不存在时，启动失败（exit 1）并打印尝试路径
+- **读取失败**：权限不足等导致 `readFile` 抛错，启动失败（exit 1）并打印路径与原因
+- **JSONC 解析失败**：JSONC 语法错误，启动失败（exit 1）并打印错误位置
 - **字段缺失或类型错误**：启动失败（exit 1）并打印具体校验错误
 - **修改后**：重启应用生效（不热重载，运行时不会重新读取）
 
@@ -172,6 +174,8 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 ### 仓库构建
 
 构建时 `electron-builder` 通过 `extraFiles` 把仓库根 `config.jsonc` 拷贝到 install root（即上述安装目录位置）。若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用。
+
+开发模式（`npm run dev`）下未在 install root 找到时，会回退到当前工作目录的 `config.jsonc`。
 
 ## 🌐 跨平台开发流程
 
