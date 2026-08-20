@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, WebContentsView, ipcMain, shell } from 'electron';
 import path from 'node:path';
 
 // CJS 模式下 __dirname 是内置的；ESM 模式下需要用 import.meta.url
@@ -9,43 +9,35 @@ const TARGET_URL = 'http://localhost:5195/agent-user/assistant';
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 5000;
 
-let splashWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
+let loadingView: WebContentsView | null = null;
+let retryView: WebContentsView | null = null;
+let errorView: WebContentsView | null = null;
 let retryCount = 0;
 
-function createSplashWindow() {
-  splashWindow = new BrowserWindow({
-    width: 600,
-    height: 300,
-    frame: false,
-    transparent: false,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    alwaysOnTop: false,
-    show: false,
-    backgroundColor: '#F0E8FF',
+/** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部（显示默认 webContents） */
+function showOnly(view: WebContentsView | null) {
+  loadingView?.setVisible(view === loadingView);
+  retryView?.setVisible(view === retryView);
+  errorView?.setVisible(view === errorView);
+}
+
+/** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML */
+function createView(htmlFile: string): WebContentsView {
+  const view = new WebContentsView({
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
-
-  splashWindow.setMenuBarVisibility(false);
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
-  // ready-to-show 在某些 Electron 版本下不会触发；用 did-finish-load 兜底
-  const showSplash = () => {
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.show();
-    }
-  };
-  splashWindow.once('ready-to-show', showSplash);
-  splashWindow.webContents.once('did-finish-load', showSplash);
-  splashWindow.on('closed', () => {
-    splashWindow = null;
-  });
+  const [w, h] = mainWindow!.getContentSize();
+  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  view.webContents.loadFile(path.join(__dirname, htmlFile));
+  mainWindow!.contentView.addChildView(view);
+  view.setVisible(false);
+  return view;
 }
 
 function createMainWindow() {
@@ -69,29 +61,36 @@ function createMainWindow() {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.loadURL(TARGET_URL);
 
+  // 创建三个状态视图，仅 loadingView 可见
+  loadingView = createView('splash.html');
+  retryView = createView('retry.html');
+  errorView = createView('error.html');
+  showOnly(loadingView);
+
+  // 默认 webContents 加载成功 → 隐藏所有视图，显示主窗口
   mainWindow.webContents.on('did-finish-load', () => {
-    // 注意：失败重试时 Chromium 也会渲染错误页并触发 did-finish-load，
-    // 这里**不能**重置 retryCount，否则重试永远卡在 1/3。
-    // retryCount 由 showErrorPage 在用户点「重试」时重置。
+    showOnly(null);
     mainWindow?.show();
-    if (splashWindow && !splashWindow.isDestroyed()) {
-      splashWindow.close();
-    }
   });
 
+  // 加载失败 → 进入重试或错误页
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[loadURL] ${errorCode} ${errorDescription} url=${validatedURL}`);
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
       console.warn(`[retry ${retryCount}/${MAX_RETRIES}]`);
+      retryView?.webContents.executeJavaScript(
+        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`
+      );
+      showOnly(retryView);
       setTimeout(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.reload();
         }
       }, RETRY_DELAY_MS);
     } else {
-      console.error(`[loadURL] gave up after ${MAX_RETRIES} retries, switching to error page`);
-      showErrorPage();
+      console.error(`[loadURL] gave up after ${MAX_RETRIES} retries, switching to error view`);
+      showOnly(errorView);
     }
   });
 
@@ -114,8 +113,30 @@ function createMainWindow() {
     }
   });
 
+  // 错误页点「重试」→ IPC 回主进程
+  ipcMain.on('retry:request', () => {
+    console.log('[retry:request] user triggered retry from error view');
+    retryCount = 0;
+    showOnly(loadingView);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload();
+    }
+  });
+
+  // resize 同步所有 View 的 bounds
+  mainWindow.on('resize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const [w, h] = mainWindow.getContentSize();
+    for (const v of [loadingView, retryView, errorView]) {
+      v?.setBounds({ x: 0, y: 0, width: w, height: h });
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    loadingView = null;
+    retryView = null;
+    errorView = null;
   });
 
   if (isDev) {
@@ -123,34 +144,11 @@ function createMainWindow() {
   }
 }
 
-function showErrorPage() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  // 用户看到错误页后可点「重试」重新尝试，此时清零让新一轮 3 次重试生效
-  retryCount = 0;
-  // 关闭 splash：它已经展示过了，不再需要
-  if (splashWindow && !splashWindow.isDestroyed()) {
-    splashWindow.close();
-  }
-  const errorPath = path.join(__dirname, 'error.html');
-  console.log(`[showErrorPage] loading ${errorPath}`);
-  // 无条件先显示 mainWindow，避免 ready-to-show 已触发过导致 once 不再触发
-  mainWindow.show();
-  mainWindow.webContents.once('did-finish-load', () => {
-    console.log('[showErrorPage] error.html loaded');
-  });
-  mainWindow.webContents.once('did-fail-load', (_e, code, desc) => {
-    console.error(`[showErrorPage] load failed: ${code} ${desc}`);
-  });
-  mainWindow.loadFile(errorPath);
-}
-
 app.whenReady().then(() => {
-  createSplashWindow();
   createMainWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createSplashWindow();
       createMainWindow();
     }
   });
