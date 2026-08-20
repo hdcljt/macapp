@@ -139,14 +139,18 @@ export interface LoadedConfig extends AppConfig {
                = <install_dir>/config.jsonc （与 .exe 同级）
    ← 命中即返回
 
-2. 仅当 app.isPackaged === false：
+2. 仅当 app.isPackaged === false 且 1 不存在：
    path.join(process.cwd(), 'config.jsonc')
    ← dev 模式 fallback（npm run dev:electron 在项目根运行）
 
-3. 仅当 1+2 都失败：
-   path.join(app.getPath('userData'), 'config.jsonc')
-   ← macOS 安装到 /Applications/ 时用户可手动放置覆盖
+3. 都不存在 → 抛 ConfigNotFoundError（硬失败，列出 1+2 路径 + 复制提示）
 ```
+
+**说明：为何不包含 userData 兜底层**
+
+tier 1 在打包场景下**始终存在**（`extraFiles` 保证 `config.jsonc` 已拷贝），任何 userData 兜底都**永远不会被命中**——这是逻辑冗余。spec v1 草案曾包含 userData 兜底，但自检时发现该层不可达，故删除。
+
+macOS `/Applications/` 写权限限制作为已知问题保留到「后续可选」（应用内"编辑配置"按钮、userData override 等留待后续设计）。
 
 **为什么 macOS 路径要向上跳一级**
 
@@ -283,14 +287,14 @@ if (errors.length > 0) {
 | Windows NSIS 安装（perMachine:false） | `%LOCALAPPDATA%\Programs\算粒AI助手\config.jsonc` |
 | Windows 免安装（zip 解压） | `<exe-dir>/config.jsonc` |
 | macOS 免安装（`.app` 任意目录） | `<productFilename>.app/Contents/config.jsonc` |
-| macOS `/Applications/` 安装 | 同上；用户可写 `userData/config.jsonc` 覆盖 |
+| macOS `/Applications/` 安装 | 同上（**只读**，用户无法编辑） |
 
-**macOS 写权限说明**
+**macOS `/Applications/` 写权限说明（已知限制）**
 
 - `.app` 拖到 `/Applications/` 后，整个 `.app` 是 root-owned
-- 用户无法编辑 `Contents/config.jsonc`（即使 Finder 可见）
-- 用户可去 `~/Library/Application Support/算粒AI助手/config.jsonc` 创建覆盖文件
-- 这种情况下 tier 1 读取成功（默认值生效），tier 3 才是用户覆盖
+- 用户**无法**编辑 `Contents/config.jsonc`（即使 Finder 可见）
+- 此场景下用户接受默认值；如需自定义，需把 `.app` 移到 `~/Applications/` 或任意可写目录
+- 应用内"编辑配置"按钮、userData override 等留待后续设计（见「后续可选」）
 
 **`.gitignore` 新增**
 
@@ -365,13 +369,12 @@ dist-electron/config.jsonc
 
 ```
 1. 启动
-2. resolveConfigPath(): 三级都找不到
+2. resolveConfigPath(): 两级都找不到（exe-dir 不存在 + dev cwd 不存在）
 3. console.error:
    [config] ✗ 未找到 config.jsonc
    [config]   已尝试:
    [config]     - <Contents>/config.jsonc
    [config]     - <project_root>/config.jsonc
-   [config]     - <userData>/config.jsonc
    [config]   提示: 从仓库根或安装包复制 config.jsonc 到上述任一路径
 4. process.exit(1)
 ```
@@ -380,34 +383,12 @@ dist-electron/config.jsonc
 
 | 场景 | 处理 |
 |------|------|
-| 三级路径都找不到 config.jsonc | 打印所有尝试路径 + 复制提示，`exit 1` |
+| 两级路径都找不到 config.jsonc | 打印所有尝试路径 + 复制提示，`exit 1` |
 | JSONC 语法错误 | 抛 `ConfigParseError`，含 `jsonc-parser` 行号，`exit 1` |
 | 字段缺失 | 抛 `ConfigValidationError("字段 X 缺失")`，`exit 1` |
 | 字段类型/范围错误 | 抛 `ConfigValidationError("字段 X 原因")`，`exit 1` |
 | `targetUrl` 不是 http(s) | 抛 `ConfigValidationError("targetUrl 必须是合法的 http(s) URL")` |
-| macOS `/Applications/` 用户编辑 `Contents/config.jsonc` 失败（权限） | 无影响：tier 3 userData 覆盖生效；tier 1 仍可用作默认值 |
-| `app.getPath('userData')` 在 `app.whenReady()` 前调用 | `resolveConfigPath` 中延迟调用：`app.isReady()` 后再 `getPath('userData')` |
-
-**`app.getPath('userData')` 时机问题**
-
-`tier 3` 依赖 `app.getPath('userData')`，而该 API 在 `app.whenReady()` 之前**不可用**。处理：
-
-```ts
-async function resolveConfigPath(): Promise<string> {
-  const tier1 = ...; // 不依赖 app
-  if (existsSync(tier1)) return tier1;
-  const tier2 = ...; // dev fallback，不依赖 app
-  if (!app.isPackaged && existsSync(tier2)) return tier2;
-  if (app.isReady()) {
-    const tier3 = path.join(app.getPath('userData'), 'config.jsonc');
-    if (existsSync(tier3)) return tier3;
-  }
-  // 收集所有候选用于错误信息
-  throw new ConfigNotFoundError([tier1, tier2, '<userData>/config.jsonc']);
-}
-```
-
-实际触发：tier 3 在顶层 await 阶段调用时 `app.isReady()` 返回 false（还没到 `whenReady`），fallback 跳过 `getPath`，改为错误信息中提示「macOS /Applications/ 安装请用 userData」。
+| macOS `/Applications/` 用户尝试编辑 `Contents/config.jsonc` | 系统权限错误；用户应接受默认值或迁移应用到可写目录 |
 
 ## 范围
 
@@ -421,7 +402,7 @@ async function resolveConfigPath(): Promise<string> {
 - ❌ 配置导入/导出 UI
 - ❌ Schema 文档自动生成
 - ❌ 兼容 `file://` 协议（仅 http/https）
-- ❌ macOS `/Applications/` 写权限解决方案（仅靠 tier 3 userData 兜底）
+- ❌ macOS `/Applications/` 写权限解决方案（用户接受默认或迁移应用到可写目录）
 
 ## 风险
 
@@ -429,11 +410,11 @@ async function resolveConfigPath(): Promise<string> {
 |------|------|------|
 | 顶层 `await` 在某些 Node 版本失败 | 应用启动崩溃 | esbuild 显式 `topLevelAwait: true`；构建后验证 `dist-electron/main.js` 顶层 `await` 已转 `Promise.resolve().then(...)` |
 | `extraFiles` 在未来 electron-builder 版本改变 macOS 落地路径 | macOS 路径失效 | 路径解析代码集中在 `resolveConfigPath()`，未来只需改一处 |
-| macOS `/Applications/` 用户无法编辑配置 | 用户困惑 | tier 3 userData + README 文档说明 |
+| macOS `/Applications/` 用户无法编辑配置 | 用户只能接受默认 | README 文档说明：迁移应用到可写目录或接受默认 |
 | `jsonc-parser` 维护中断 | 未来安全/兼容风险 | 微软官方维护；接口稳定；可替换为 `vscode-jsonc` 或自写 |
 | `validateConfig` 误把合法值当错误 | 应用无法启动 | 错误信息含「实际值」便于排查；启动期快速反馈 |
 | 配置文件被用户改成非法格式 | 应用无法启动 | 硬失败策略，错误信息含行号，便于修复 |
-| `app.getPath('userData')` 在 `whenReady` 前调用报错 | tier 3 不可用 | `app.isReady()` 守卫，文档说明 |
+| `app.getPath('userData')` 在 `whenReady` 前调用报错 | 不适用（本设计不含 userData tier）| N/A |
 | Windows NSIS `perMachine:true` 部署到 `Program Files` | 用户不可写 | 当前配置 `perMachine: false`；未来如改 true 需重新评估 |
 | `extraFiles` 把 `config.jsonc` 当 asar 资源打进 `.app` | macOS 编辑权限问题 | electron-builder 行为：extraFiles 不进 asar，留在文件系统 |
 
@@ -452,17 +433,17 @@ async function resolveConfigPath(): Promise<string> {
 11. **Windows 免安装**：`npm run build:win:zip` → `<exe-dir>/config.jsonc` 存在
 12. **macOS 打包**：`npm run build:mac` → release 出现 `.dmg`；挂载后 `<productFilename>.app/Contents/config.jsonc` 存在
 13. **macOS Finder 可见**：在 Finder 中「显示包内容」`.app` 后，`Contents/config.jsonc` 可见可读（即使 root-owned 不可写）
-14. **macOS userData 覆盖**：在 `~/Library/Application Support/算粒AI助手/config.jsonc` 放不同 `targetUrl` → 应用使用 userData 值
-15. **热重载不生效**：启动后修改 `config.jsonc` → 不生效；必须重启
+14. **热重载不生效**：启动后修改 `config.jsonc` → 不生效；必须重启
 
 ## 后续可选（不在本次范围）
 
 - 引入 `vitest` + `electron/config.test.ts` 单元测试
-- 应用内「编辑配置」按钮：自动打开 `userData/config.jsonc`
+- 应用内「编辑配置」按钮：自动打开 `userData/config.jsonc` 覆盖路径（需先实现 userData 优先的 3 级 fallback）
 - 环境变量覆盖（`MACAPP_TARGET_URL` 等）
 - 多 profile 切换（开发 / 生产 / 自定义）
 - 配置迁移工具（schema 版本演进）
 - 首次启动向导，引导非技术用户编辑 `config.jsonc`
+- macOS `/Applications/` 写权限解决方案（userData 优先 + 应用内编辑入口）
 
 ## 决策记录
 
