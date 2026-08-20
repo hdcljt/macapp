@@ -122,13 +122,23 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 ## ⚙️ 配置文件
 
-应用通过 `config.jsonc` 实现行为配置。该文件位于**安装目录的可执行程序同级位置**：
+应用通过 `config.jsonc` 实现行为配置。应用采用「bundled default + 首次启动复制到 userData」模型：
 
-- **macOS**: `<productFilename>.app/Contents/Resources/config.jsonc`
-  - 例如：`/Applications/算粒AI助手.app/Contents/Resources/config.jsonc`（编辑此文件需要管理员权限）
-  - 落地于 `Contents/Resources/` 而非 `Contents/` 是 macOS bundle 规范要求：codesign 拒绝签名 `Contents/` 根目录的非代码文件，会报 `code object is not signed at all`。
-- **Windows**: `<exe-dir>/config.jsonc`
-  - 例如：`C:\Program Files\算粒AI助手\config.jsonc`
+### 配置文件位置
+
+应用首次启动时会自动生成一份可编辑的配置文件：
+
+- **macOS**：`~/Library/Application Support/算粒AI助手/config.jsonc`
+- **Windows**：`%APPDATA%\算粒AI助手\config.jsonc`
+
+应用启动时**优先读取用户目录的可编辑副本**；首次启动时如不存在，自动从应用包内的 bundled default 复制一份到上述路径。
+
+### bundled default 位置（只读种子）
+
+应用包内还携带一份「出厂默认」配置，用于首次启动时复制，**用户无需手动操作**：
+
+- **macOS**：`/Applications/算粒AI助手.app/Contents/Resources/config.jsonc`（`<.app>` bundle 内，codesign 保护，正常情况下不可编辑）
+- **Windows**：`<安装目录>\resources\config.jsonc`（如 `%LOCALAPPDATA%\Programs\算粒AI助手\resources\config.jsonc`）
 
 ### 字段说明
 
@@ -164,24 +174,38 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 ### 加载规则
 
-- **缺失**：`config.jsonc` 不存在时，启动失败（exit 1）并打印尝试路径
-- **读取失败**：权限不足等导致 `readFile` 抛错，启动失败（exit 1）并打印路径与原因
+- **优先读取** userData 中的副本（用户可编辑）
+- **首次启动**：userData 没有时，从 bundled default 复制；复制成功 → 正常使用，复制失败（权限不足）→ 降级读 bundled + 终端警告「无法写入 userData，用户编辑不会持久化」
+- **bundled 缺失**（打包漏文件）：启动失败（exit 1）并打印尝试路径
 - **JSONC 解析失败**：JSONC 语法错误，启动失败（exit 1）并打印错误位置
 - **字段缺失或类型错误**：启动失败（exit 1）并打印具体校验错误
 - **修改后**：重启应用生效（不热重载，运行时不会重新读取）
 
 > 注：所有校验错误都是硬失败，不会使用默认值兜底。
 
+### 恢复出厂默认
+
+删除上述 userData 路径下的 `config.jsonc`，下次启动时会自动从应用包内的 bundled default 重新生成。
+
+### 自定义部署（运维）
+
+批量部署时如需预设统一配置，改应用包内的 bundled default 后重新打包（userData 副本会保持用户上次编辑，不会被覆盖）：
+
+- **macOS**：`/Applications/算粒AI助手.app/Contents/Resources/config.jsonc`
+- **Windows**：`<安装目录>\resources\config.jsonc`
+
+### 开发模式（`npm run dev`）
+
+dev 模式仍读仓库根 `config.jsonc`，不走 userData 模型（方便开发者日常编辑）。重启 dev server 后生效。
+
 ### 仓库构建
 
-构建时 `electron-builder` 按平台分别处理：
+构建时 `electron-builder` 通过 `build.extraResources` 把仓库根 `config.jsonc` 拷贝到：
 
-- macOS：使用 `mac.extraResources` 把仓库根 `config.jsonc` 拷贝到 `<App>.app/Contents/Resources/config.jsonc`（标准资源目录，codesign 安全）
-- Windows：使用 `win.extraFiles` 把仓库根 `config.jsonc` 拷贝到 `<exe-dir>/config.jsonc`
+- macOS：`<App>.app/Contents/Resources/config.jsonc`（标准资源目录，codesign 安全）
+- Windows：`<安装目录>\resources\config.jsonc`
 
-若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用。
-
-开发模式（`npm run dev`）下未在 install root 找到时，会回退到当前工作目录的 `config.jsonc`。
+若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用（只影响 bundled default，已部署用户的 userData 副本不受影响）。
 
 ## 🌐 跨平台开发流程
 
