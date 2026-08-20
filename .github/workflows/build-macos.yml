@@ -181,17 +181,36 @@ jobs:
       - name: 列出产物
         run: find artifacts -type f | sort
 
+      # electron-builder 在 macOS Apple Silicon runner 上即便指定 --arm64 / --x64
+      # 也会同时产出 arm64 + x64 双架构 dmg/zip（universal job 还会产三套），
+      # 同 release 下同名 asset 会撞 422 (ReleaseAsset.name already exists)。
+      # 按 build job 拆目录名精确裁剪，让每个目录只保留对应架构的产物。
+      - name: 清理多架构构建中冗余的产物
+        run: |
+          set -euo pipefail
+          find artifacts/macapp-macos-arm64    -type f ! -name '*arm64*'    -delete
+          find artifacts/macapp-macos-x64       -type f ! -name '*x64*'      -delete
+          find artifacts/macapp-macos-universal -type f ! -name '*universal*' -delete
+          echo "清理后剩余产物："
+          find artifacts -type f | sort
+
       # 用 gh CLI 替换 softprops/action-gh-release@v2。
       # 原 softprops 走"先 upload 再 PATCH label"的两段式，在并发文件下
       # 会撞 GitHub release asset 的写后读延迟窗口（PATCH 时 asset_id 404）。
       # gh release create + gh release upload --clobber 走单步原子 API，
       # 不再有后续 PATCH，从根上避开这个竞态。
-      - name: 创建 Release（不带任何 asset）
+      - name: 创建 Release（不带任何 asset；已存在则跳过，覆盖走 --clobber）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # 重跑场景：tag 再次触发 workflow 时 release 可能已经存在，
+          # gh release create 同名会失败；这时让 upload 走 --clobber 补齐即可。
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME 已存在，跳过创建"
+            exit 0
+          fi
           ARGS=("$TAG_NAME" --title "$TAG_NAME" --generate-notes)
           if [[ "$TAG_NAME" == *rc* || "$TAG_NAME" == *beta* ]]; then
             ARGS+=(--prerelease)
