@@ -1,0 +1,19 @@
+{
+  // 目标 URL：Electron 启动后 contentView 会加载此地址
+  // will-navigate 拦截从此字段推导 origin；仅接受 http:// 与 https://
+  "targetUrl": "http://localhost:5195/agent-user/assistant",
+
+  // 目标 URL 加载失败时的重试次数。设为 0 表示不重试，直接进入错误页
+  "maxRetries": 3,
+
+  // 每次重试间隔（毫秒）。覆盖 ERR_CONNECTION_REFUSED 等所有错误
+  "retryDelayMs": 5000,
+
+  // BrowserWindow 初始尺寸（整数；width 必须 >= minWidth；height 必须 >= minHeight）
+  "width": 1180,
+  "height": 820,
+
+  // BrowserWindow 最小尺寸（resize 时不低于此值）
+  "minWidth": 900,
+  "minHeight": 700
+}
