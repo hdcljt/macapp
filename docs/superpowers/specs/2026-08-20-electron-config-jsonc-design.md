@@ -120,7 +120,7 @@ export interface LoadedConfig extends AppConfig {
 **错误输出示例**
 
 ```
-[config] ✗ 字段校验失败：/Applications/算粒AI助手.app/Contents/config.jsonc
+[config] ✗ 字段校验失败：/Applications/算粒AI助手.app/Contents/Resources/config.jsonc
   - targetUrl: 必须是合法的 http(s) URL (实际: "localhost:5195/...")
   - maxRetries: 必须是非负整数 (实际: -1)
   - width (800): 必须 >= minWidth (950)
@@ -133,8 +133,8 @@ export interface LoadedConfig extends AppConfig {
 
 ```
 1. 平台特定 exe-dir 路径
-   ├─ darwin:  path.join(path.dirname(path.dirname(process.execPath)), 'config.jsonc')
-   │           = .app/Contents/config.jsonc
+   ├─ darwin:  path.join(path.dirname(path.dirname(process.execPath)), 'Resources', 'config.jsonc')
+   │           = .app/Contents/Resources/config.jsonc
    └─ 其他:    path.join(path.dirname(process.execPath), 'config.jsonc')
                = <install_dir>/config.jsonc （与 .exe 同级）
    ← 命中即返回
@@ -148,13 +148,15 @@ export interface LoadedConfig extends AppConfig {
 
 **说明：为何不包含 userData 兜底层**
 
-tier 1 在打包场景下**始终存在**（`extraFiles` 保证 `config.jsonc` 已拷贝），任何 userData 兜底都**永远不会被命中**——这是逻辑冗余。spec v1 草案曾包含 userData 兜底，但自检时发现该层不可达，故删除。
+tier 1 在打包场景下**始终存在**（mac 用 `mac.extraResources`、win 用 `win.extraFiles` 保证 `config.jsonc` 已拷贝），任何 userData 兜底都**永远不会被命中**——这是逻辑冗余。spec v1 草案曾包含 userData 兜底，但自检时发现该层不可达，故删除。
 
 macOS `/Applications/` 写权限限制作为已知问题保留到「后续可选」（应用内"编辑配置"按钮、userData override 等留待后续设计）。
 
 **为什么 macOS 路径要向上跳一级**
 
-electron-builder `extraFiles` 在 macOS 上落到 `<productFilename>.app/Contents/config.jsonc`（源码 `app-builder-lib/out/platformPackager.js:131-135`：`outDir = path.join(appOutDir, ${productFilename}.app, "Contents")`）。`process.execPath` = `Contents/MacOS/算粒AI助手`，所以 `path.dirname(path.dirname(process.execPath))` 跳到 `Contents/` 才能命中。
+electron-builder `mac.extraResources` 在 macOS 上落到 `<productFilename>.app/Contents/Resources/config.jsonc`（macOS bundle 标准资源目录）。`process.execPath` = `Contents/MacOS/算粒AI助手`，所以 `path.dirname(path.dirname(process.execPath))` 跳到 `Contents/`，再拼 `Resources/config.jsonc` 才能命中。
+
+> **早期设计备注**：v1 用 `extraFiles` 让 macOS 落到 `Contents/config.jsonc`，但 codesign 拒绝签名 `Contents/` 根目录的非代码文件（报 `code object is not signed at all`）。改用 `mac.extraResources` 后落地到 `Contents/Resources/` 才符合 macOS bundle 规范，签名通过。
 
 **加载流程**
 
@@ -273,9 +275,16 @@ if (errors.length > 0) {
      "extraResources": [
        { "from": "build/icon.png", "to": "icon.png" }
      ],
-+    "extraFiles": [
-+      { "from": "config.jsonc", "to": "config.jsonc" }
-+    ]
++    "mac": {
++      "extraResources": [
++        { "from": "config.jsonc", "to": "config.jsonc" }
++      ]
++    },
++    "win": {
++      "extraFiles": [
++        { "from": "config.jsonc", "to": "config.jsonc" }
++      ]
++    }
    }
 ```
 
@@ -286,13 +295,13 @@ if (errors.length > 0) {
 | dev (`npm run dev:electron`) | `<project_root>/config.jsonc`（tier 2 fallback） |
 | Windows NSIS 安装（perMachine:false） | `%LOCALAPPDATA%\Programs\算粒AI助手\config.jsonc` |
 | Windows 免安装（zip 解压） | `<exe-dir>/config.jsonc` |
-| macOS 免安装（`.app` 任意目录） | `<productFilename>.app/Contents/config.jsonc` |
+| macOS 免安装（`.app` 任意目录） | `<productFilename>.app/Contents/Resources/config.jsonc` |
 | macOS `/Applications/` 安装 | 同上（**只读**，用户无法编辑） |
 
 **macOS `/Applications/` 写权限说明（已知限制）**
 
 - `.app` 拖到 `/Applications/` 后，整个 `.app` 是 root-owned
-- 用户**无法**编辑 `Contents/config.jsonc`（即使 Finder 可见）
+- 用户**无法**编辑 `Contents/Resources/config.jsonc`（即使 Finder 可见）
 - 此场景下用户接受默认值；如需自定义，需把 `.app` 移到 `~/Applications/` 或任意可写目录
 - 应用内"编辑配置"按钮、userData override 等留待后续设计（见「后续可选」）
 
@@ -314,7 +323,7 @@ dist-electron/config.jsonc
 应用启动时按以下顺序查找 `config.jsonc`：
 
 1. 平台特定 exe-dir 路径
-   - macOS：`<productFilename>.app/Contents/config.jsonc`
+   - macOS：`<productFilename>.app/Contents/Resources/config.jsonc`
    - Windows / Linux：`<exe-dir>/config.jsonc`
 2. dev 模式：`process.cwd()/config.jsonc`
 
@@ -330,7 +339,7 @@ dist-electron/config.jsonc
 | `electron/main.ts` | **修改**：删除 7 个硬编码常量；顶层 `await loadConfig()`；构造 BrowserWindow 时用 `config.*`；`will-navigate` 用 `ALLOWED_ORIGIN_PREFIX` |
 | `config.jsonc` | **新增**（仓库根）：git 跟踪的默认值 |
 | `scripts/build-electron.js` | **修改**：esbuild 配置加 `topLevelAwait: true` |
-| `package.json` | **修改**：devDependencies 加 `jsonc-parser`；build 加 `extraFiles` |
+| `package.json` | **修改**：devDependencies 加 `jsonc-parser`；build 加 `mac.extraResources` + `win.extraFiles` |
 | `.gitignore` | **修改**：新增 `release/**/config.jsonc`、`dist-electron/config.jsonc` |
 | `README.md` | **修改**：新增「配置文件」章节 |
 
@@ -359,7 +368,7 @@ dist-electron/config.jsonc
 1. 用户双击 算粒AI助手.app（或 .exe）
 2. main.js 顶层: const config = await loadConfig()
 3. resolveConfigPath():
-   - darwin: <Contents>/config.jsonc 命中（extraFiles 产物）
+   - darwin: <Contents>/Resources/config.jsonc 命中（mac.extraResources 产物）
 4. parse + validate → 通过
 5. 正常启动 BrowserWindow
 ```
@@ -387,7 +396,7 @@ dist-electron/config.jsonc
 | 字段缺失 | 抛 `ConfigValidationError("字段 X 缺失")`，`exit 1` |
 | 字段类型/范围错误 | 抛 `ConfigValidationError("字段 X 原因")`，`exit 1` |
 | `targetUrl` 不是 http(s) | 抛 `ConfigValidationError("targetUrl 必须是合法的 http(s) URL")` |
-| macOS `/Applications/` 用户尝试编辑 `Contents/config.jsonc` | 系统权限错误；用户应接受默认值或迁移应用到可写目录 |
+| macOS `/Applications/` 用户尝试编辑 `Contents/Resources/config.jsonc` | 系统权限错误；用户应接受默认值或迁移应用到可写目录 |
 
 ## 范围
 
@@ -408,14 +417,14 @@ dist-electron/config.jsonc
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | 顶层 `await` 在某些 Node 版本失败 | 应用启动崩溃 | esbuild 显式 `topLevelAwait: true`；构建后验证 `dist-electron/main.js` 顶层 `await` 已转 `Promise.resolve().then(...)` |
-| `extraFiles` 在未来 electron-builder 版本改变 macOS 落地路径 | macOS 路径失效 | 路径解析代码集中在 `resolveConfigPath()`，未来只需改一处 |
+| `extraResources` 在未来 electron-builder 版本改变 macOS 落地路径 | macOS 路径失效 | 路径解析代码集中在 `resolveConfigPath()`，未来只需改一处 |
 | macOS `/Applications/` 用户无法编辑配置 | 用户只能接受默认 | README 文档说明：迁移应用到可写目录或接受默认 |
 | `jsonc-parser` 维护中断 | 未来安全/兼容风险 | 微软官方维护；接口稳定；可替换为 `vscode-jsonc` 或自写 |
 | `validateConfig` 误把合法值当错误 | 应用无法启动 | 错误信息含「实际值」便于排查；启动期快速反馈 |
 | 配置文件被用户改成非法格式 | 应用无法启动 | 硬失败策略，错误信息含行号，便于修复 |
 | `app.getPath('userData')` 在 `whenReady` 前调用报错 | 不适用（本设计不含 userData tier）| N/A |
 | Windows NSIS `perMachine:true` 部署到 `Program Files` | 用户不可写 | 当前配置 `perMachine: false`；未来如改 true 需重新评估 |
-| `extraFiles` 把 `config.jsonc` 当 asar 资源打进 `.app` | macOS 编辑权限问题 | electron-builder 行为：extraFiles 不进 asar，留在文件系统 |
+| `extraResources` 把 `config.jsonc` 当 asar 资源打进 `.app` | macOS 编辑权限问题 | electron-builder 行为：extraResources 不进 asar，留在文件系统 |
 
 ## 验收标准
 
@@ -430,8 +439,8 @@ dist-electron/config.jsonc
 9. **JSONC 尾逗号**：最后一个字段后加 `,` → 正常加载
 10. **Windows 打包**：`npm run build:win` → release 出现 `.exe`；安装后 `%LOCALAPPDATA%\Programs\算粒AI助手\config.jsonc` 存在
 11. **Windows 免安装**：`npm run build:win:zip` → `<exe-dir>/config.jsonc` 存在
-12. **macOS 打包**：`npm run build:mac` → release 出现 `.dmg`；挂载后 `<productFilename>.app/Contents/config.jsonc` 存在
-13. **macOS Finder 可见**：在 Finder 中「显示包内容」`.app` 后，`Contents/config.jsonc` 可见可读（即使 root-owned 不可写）
+12. **macOS 打包**：`npm run build:mac` → release 出现 `.dmg`；挂载后 `<productFilename>.app/Contents/Resources/config.jsonc` 存在；codesign 签名通过
+13. **macOS Finder 可见**：在 Finder 中「显示包内容」`.app` 后，`Contents/Resources/config.jsonc` 可见可读（即使 root-owned 不可写）
 14. **热重载不生效**：启动后修改 `config.jsonc` → 不生效；必须重启
 
 ## 后续可选（不在本次范围）
@@ -455,6 +464,6 @@ dist-electron/config.jsonc
 | 热重载 | 不支持 | watch + 动态加载 |
 | 仓库模板 | `config.jsonc` 唯一文件（既是模板也是默认值） | `config.example.json` + gitignore `config.json` |
 | 协议支持 | 仅 http/https | 包含 file:// |
-| 拷贝机制 | electron-builder `extraFiles` | `extraResources` / `afterPack` / `asarUnpack` |
+| 拷贝机制 | electron-builder `mac.extraResources` + `win.extraFiles` | `afterPack` / `asarUnpack` |
 | JSONC 解析 | `jsonc-parser`（微软，零依赖） | 自写剥离器；`json5` |
 | 测试 | 不引入测试框架 | vitest；jest |

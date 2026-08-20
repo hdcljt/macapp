@@ -1,6 +1,6 @@
 {
   "name": "macapp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AI 桌面助手 - macOS",
   "main": "dist-electron/main.js",
   "author": "Your Team",
@@ -45,13 +45,13 @@
         "to": "icon.png"
       }
     ],
-    "extraFiles": [
-      {
-        "from": "config.jsonc",
-        "to": "config.jsonc"
-      }
-    ],
     "mac": {
+      "extraResources": [
+        {
+          "from": "config.jsonc",
+          "to": "config.jsonc"
+        }
+      ],
       "category": "public.app-category.productivity",
       "target": [
         {
@@ -103,7 +103,13 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
+      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
+      "extraFiles": [
+        {
+          "from": "config.jsonc",
+          "to": "config.jsonc"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

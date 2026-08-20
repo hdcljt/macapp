@@ -4,7 +4,7 @@
 
 **目标:** 将 `electron/main.ts` 硬编码的 7 个常量抽离到 `config.jsonc`，应用启动时按平台特定路径读取；缺失或字段错误硬失败。
 
-**Architecture:** 新增 `electron/config.ts` 集中负责路径解析、JSONC 解析、字段校验与失败退出；`main.ts` 顶层 `await loadConfig()` 消费 `config.*`；electron-builder `extraFiles` 跨平台把仓库根 `config.jsonc` 拷贝到 exe-dir。
+**Architecture:** 新增 `electron/config.ts` 集中负责路径解析、JSONC 解析、字段校验与失败退出；`main.ts` 顶层 `await loadConfig()` 消费 `config.*`；electron-builder `mac.extraResources` + `win.extraFiles` 分平台把仓库根 `config.jsonc` 拷贝到目标位置。
 
 **Tech Stack:** TypeScript 7、esbuild 0.28、electron-builder 26、`jsonc-parser` 3.3（新增）
 
@@ -27,7 +27,7 @@
 |------|---------|
 | `electron/main.ts` | 顶部 `await loadConfig()`；删除 7 个硬编码常量；用 `config.*` 替换 |
 | `scripts/build-electron.js` | esbuild 配置加 `topLevelAwait: true` |
-| `package.json` | devDependencies 加 `jsonc-parser`；build 加 `extraFiles` |
+| `package.json` | devDependencies 加 `jsonc-parser`；build 加 `mac.extraResources` + `win.extraFiles` |
 | `.gitignore` | 忽略打包输出内的 `config.jsonc` |
 | `README.md` | 新增「配置文件」章节 |
 
@@ -205,8 +205,9 @@ export class ConfigNotFoundError extends ConfigError {
 
 /**
  * 解析平台特定的 exe-dir 配置路径
- * macOS: <exec>/../Contents/config.jsonc（extraFiles 落地位置）
- * 其他:  <exec-dir>/config.jsonc
+ * macOS: <exec>/../Resources/config.jsonc（mac.extraResources 落地位置）
+ *   注意：必须放在 Contents/Resources/，否则 codesign 拒绝签名 Contents/ 根目录的非代码文件
+ * 其他:  <exec-dir>/config.jsonc（win.extraFiles 落地位置）
  */
 function getExecDirConfigPath(): string {
   const execDir = path.dirname(process.execPath);
@@ -563,46 +564,52 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-## Task 6: 配置 electron-builder `extraFiles`
+## Task 6: 配置 electron-builder 拷贝 config.jsonc
 
 **Files:**
 - Modify: `package.json` (build block)
 
-- [ ] **Step 1: 在 `build` 段添加 `extraFiles`**
+- [ ] **Step 1: 在 `mac` 段添加 `extraResources`，在 `win` 段添加 `extraFiles`**
 
-在 `package.json` 的 `build` 块中，紧跟 `extraResources` 之后添加 `extraFiles`：
+macOS 必须用 `extraResources`（落到 `Contents/Resources/`，避开 codesign 拒绝签名 `Contents/` 根目录非代码文件的问题）；Windows 用 `extraFiles`（落到 `<exe-dir>/config.jsonc`，与 `.exe` 同级）：
 
 ```diff
-     "extraResources": [
-       {
-         "from": "build/icon.png",
-         "to": "icon.png"
-       }
--    ]
-+    ],
-+    "extraFiles": [
-+      {
-+        "from": "config.jsonc",
-+        "to": "config.jsonc"
-+      }
-+    ]
-   }
+     "mac": {
++      "extraResources": [
++        {
++          "from": "config.jsonc",
++          "to": "config.jsonc"
++        }
++      ],
+       "category": "public.app-category.productivity",
+       ...
+     },
+     "win": {
+       ...
+       "icon": "build/icon.ico",
+-      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
++      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}",
++      "extraFiles": [
++        {
++          "from": "config.jsonc",
++          "to": "config.jsonc"
++        }
++      ]
+     }
 ```
-
-注意 JSON 逗号：在 `extraResources` 数组结束的 `]` 之后需要 `,`，然后是 `extraFiles` 数组。
 
 - [ ] **Step 2: 验证 JSON 语法**
 
 Run: `node -e "console.log(JSON.stringify(require('./package.json').build, null, 2))"`
-Expected: 看到 `extraFiles` 数组，里面包含 `from: "config.jsonc"`
+Expected: 看到 `mac.extraResources` 与 `win.extraFiles` 数组，都包含 `from: "config.jsonc"`
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add package.json
-git commit -m "build(electron-builder): 配置 extraFiles 把 config.jsonc 拷贝到 exe-dir
+git commit -m "build(electron-builder): 用 mac.extraResources + win.extraFiles 拷贝 config.jsonc
 
-macOS 落地 <productFilename>.app/Contents/config.jsonc
+macOS 落地 <productFilename>.app/Contents/Resources/config.jsonc（标准资源目录，codesign 安全）
 Windows 落地 <exe-dir>/config.jsonc （与 .exe 同级）
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
@@ -661,7 +668,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 应用启动时按以下顺序查找 `config.jsonc`：
 
 1. 平台特定 exe-dir 路径
-   - macOS：`<productFilename>.app/Contents/config.jsonc`
+   - macOS：`<productFilename>.app/Contents/Resources/config.jsonc`
    - Windows / Linux：`<exe-dir>/config.jsonc`
 2. dev 模式：`process.cwd()/config.jsonc`
 

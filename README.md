@@ -124,8 +124,9 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 应用通过 `config.jsonc` 实现行为配置。该文件位于**安装目录的可执行程序同级位置**：
 
-- **macOS**: `<productFilename>.app/Contents/config.jsonc`
-  - 例如：`/Applications/算粒AI助手.app/Contents/config.jsonc`（编辑此文件需要管理员权限）
+- **macOS**: `<productFilename>.app/Contents/Resources/config.jsonc`
+  - 例如：`/Applications/算粒AI助手.app/Contents/Resources/config.jsonc`（编辑此文件需要管理员权限）
+  - 落地于 `Contents/Resources/` 而非 `Contents/` 是 macOS bundle 规范要求：codesign 拒绝签名 `Contents/` 根目录的非代码文件，会报 `code object is not signed at all`。
 - **Windows**: `<exe-dir>/config.jsonc`
   - 例如：`C:\Program Files\算粒AI助手\config.jsonc`
 
@@ -173,7 +174,12 @@ npm run build:win:nsis      # NSIS 安装程序 + 便携 ZIP
 
 ### 仓库构建
 
-构建时 `electron-builder` 通过 `extraFiles` 把仓库根 `config.jsonc` 拷贝到 install root（即上述安装目录位置）。若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用。
+构建时 `electron-builder` 按平台分别处理：
+
+- macOS：使用 `mac.extraResources` 把仓库根 `config.jsonc` 拷贝到 `<App>.app/Contents/Resources/config.jsonc`（标准资源目录，codesign 安全）
+- Windows：使用 `win.extraFiles` 把仓库根 `config.jsonc` 拷贝到 `<exe-dir>/config.jsonc`
+
+若修改了仓库根 `config.jsonc`，需要重新执行 `npm run build` 并重新安装应用。
 
 开发模式（`npm run dev`）下未在 install root 找到时，会回退到当前工作目录的 `config.jsonc`。
 
