@@ -78,6 +78,19 @@ function getExecDirConfigPath(): string {
 }
 
 /**
+ * 解析平台特定的 bundled default 路径
+ * macOS:   <exec>/../Resources/config.jsonc（extraResources 落地位置，codesign 兼容）
+ * Windows: <exec-dir>/resources/config.jsonc（extraResources 落地位置）
+ */
+function getBundledConfigPath(): string {
+  const execDir = path.dirname(process.execPath);
+  if (process.platform === 'darwin') {
+    return path.join(execDir, '..', 'Resources', 'config.jsonc');
+  }
+  return path.join(execDir, 'resources', 'config.jsonc');
+}
+
+/**
  * 解析 config.jsonc 实际路径（2 级 fallback）
  */
 export function resolveConfigPath(): string {
