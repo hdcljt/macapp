@@ -317,7 +317,6 @@ dist-electron/config.jsonc
    - macOS：`<productFilename>.app/Contents/config.jsonc`
    - Windows / Linux：`<exe-dir>/config.jsonc`
 2. dev 模式：`process.cwd()/config.jsonc`
-3. `app.getPath('userData')/config.jsonc`
 
 字段说明见仓库根 `config.jsonc` 内的 `//` 注释。
 **修改后必须重启应用**——本设计不支持热重载。
@@ -449,7 +448,7 @@ dist-electron/config.jsonc
 
 | 决策 | 选择 | 否决项 |
 |------|------|--------|
-| 文件位置 | exe-dir + dev fallback + userData 兜底 | userData only；仓库根 only |
+| 文件位置 | exe-dir（打包）/ cwd（dev），2 级 fallback | userData 兜底；仓库根 only |
 | 格式 | JSONC | 严格 JSON；YAML；JS/TS |
 | 缺失/无效行为 | 硬失败（exit 1） | 静默默认值；错误页 |
 | 文件名 | `config.jsonc`（统一） | `config.json` / `app.config.json` |
