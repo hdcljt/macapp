@@ -181,12 +181,29 @@ jobs:
       - name: 列出产物
         run: find artifacts -type f | sort
 
-      - name: 创建 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') }}
+      # 用 gh CLI 替换 softprops/action-gh-release@v2。
+      # 原 softprops 走"先 upload 再 PATCH label"的两段式，在并发文件下
+      # 会撞 GitHub release asset 的写后读延迟窗口（PATCH 时 asset_id 404）。
+      # gh release create + gh release upload --clobber 走单步原子 API，
+      # 不再有后续 PATCH，从根上避开这个竞态。
+      - name: 创建 Release（不带任何 asset）
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ARGS=("$TAG_NAME" --title "$TAG_NAME" --generate-notes)
+          if [[ "$TAG_NAME" == *rc* || "$TAG_NAME" == *beta* ]]; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "${ARGS[@]}"
+
+      - name: 上传所有产物（--clobber 允许重跑场景）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(find artifacts -type f | sort)
+          echo "待上传文件 ($(printf '%s\n' "${FILES[@]}" | wc -l) 个)："
+          printf '  %s\n' "${FILES[@]}"
+          gh release upload "${{ github.ref_name }}" --clobber "${FILES[@]}"
