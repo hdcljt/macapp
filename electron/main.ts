@@ -13,13 +13,15 @@ let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
 let retryView: WebContentsView | null = null;
 let errorView: WebContentsView | null = null;
+let contentView: WebContentsView | null = null; // URL 内容也用 View 承载，避免默认 webContents 空白穿透
 let retryCount = 0;
 
-/** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部（显示默认 webContents） */
+/** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部 */
 function showOnly(view: WebContentsView | null) {
   loadingView?.setVisible(view === loadingView);
   retryView?.setVisible(view === retryView);
   errorView?.setVisible(view === errorView);
+  contentView?.setVisible(view === contentView);
 }
 
 /** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML */
@@ -35,6 +37,24 @@ function createView(htmlFile: string): WebContentsView {
   const [w, h] = mainWindow!.getContentSize();
   view.setBounds({ x: 0, y: 0, width: w, height: h });
   view.webContents.loadFile(path.join(__dirname, htmlFile));
+  mainWindow!.contentView.addChildView(view);
+  view.setVisible(false);
+  return view;
+}
+
+/** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载 URL */
+function createUrlView(url: string): WebContentsView {
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  const [w, h] = mainWindow!.getContentSize();
+  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  view.webContents.loadURL(url);
   mainWindow!.contentView.addChildView(view);
   view.setVisible(false);
   return view;
@@ -59,22 +79,30 @@ function createMainWindow() {
   });
 
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.loadURL(TARGET_URL);
 
-  // 创建三个状态视图，仅 loadingView 可见
+  // 关键修复：默认 webContents 不加载 URL，避免 URL 为空白/慢加载时穿透到背景
+  // 改用一个 WebContentsView 承载 URL 内容
+
+  // 创建四个 View：loading / retry / error / content(URL)
   loadingView = createView('splash.html');
   retryView = createView('retry.html');
   errorView = createView('error.html');
+  contentView = createUrlView(TARGET_URL); // URL 内容用自己的 View
+
+  // 初始显示 loadingView
   showOnly(loadingView);
 
-  // 默认 webContents 加载成功 → 隐藏所有视图，显示主窗口
-  mainWindow.webContents.on('did-finish-load', () => {
-    showOnly(null);
-    mainWindow?.show();
+  // 立即显示窗口（带着 loadingView），让用户看到加载 UI
+  mainWindow.show();
+
+  // URL 内容加载成功（用 contentView.webContents 监听，不是默认 webContents）
+  contentView.webContents.on('did-finish-load', () => {
+    console.log('[loadURL] content view did-finish-load, switching to contentView');
+    showOnly(contentView);
   });
 
-  // 加载失败 → 进入重试或错误页
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+  // URL 内容加载失败 → 进入重试或错误页
+  contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[loadURL] ${errorCode} ${errorDescription} url=${validatedURL}`);
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
@@ -84,8 +112,8 @@ function createMainWindow() {
       );
       showOnly(retryView);
       setTimeout(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.reload();
+        if (contentView && !contentView.webContents.isDestroyed()) {
+          contentView.webContents.reload();
         }
       }, RETRY_DELAY_MS);
     } else {
@@ -94,11 +122,11 @@ function createMainWindow() {
     }
   });
 
-  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+  contentView.webContents.on('render-process-gone', (_event, details) => {
     console.error('[render-process-gone]', details);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  contentView.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https:')) {
       shell.openExternal(url);
     }
@@ -106,7 +134,7 @@ function createMainWindow() {
   });
 
   // 拦截非目标 origin 的导航
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  contentView.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('http://localhost:5195/')) {
       event.preventDefault();
       console.warn(`[will-navigate blocked] ${url}`);
@@ -118,8 +146,8 @@ function createMainWindow() {
     console.log('[retry:request] user triggered retry from error view');
     retryCount = 0;
     showOnly(loadingView);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.reload();
+    if (contentView && !contentView.webContents.isDestroyed()) {
+      contentView.webContents.reload();
     }
   });
 
@@ -127,7 +155,7 @@ function createMainWindow() {
   mainWindow.on('resize', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const [w, h] = mainWindow.getContentSize();
-    for (const v of [loadingView, retryView, errorView]) {
+    for (const v of [loadingView, retryView, errorView, contentView]) {
       v?.setBounds({ x: 0, y: 0, width: w, height: h });
     }
   });
@@ -137,10 +165,11 @@ function createMainWindow() {
     loadingView = null;
     retryView = null;
     errorView = null;
+    contentView = null;
   });
 
   if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    contentView.webContents.openDevTools({ mode: 'detach' });
   }
 }
 
