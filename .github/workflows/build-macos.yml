@@ -130,7 +130,14 @@ jobs:
     needs: [build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      # fetch-depth: 0 + fetch-tags: true 是必要的：
+      # 默认 shallow clone 不拉任何 tag，git tag --sort=-v:refname 只能看到当前 tag 自己，
+      # PREV_TAG 会拿空、release notes 走「首次发布」兜底分支。
+      # 改用全历史 + 全 tag 后 PREV_TAG 才能正确指向上一个正式版本（如 v0.5.4）。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
