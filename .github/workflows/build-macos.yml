@@ -194,9 +194,11 @@ jobs:
       - name: 清理多架构构建中冗余的产物
         run: |
           set -euo pipefail
-          find artifacts/macapp-macos-arm64    -type f ! -name '*arm64*'    -delete
-          find artifacts/macapp-macos-x64       -type f ! -name '*x64*'      -delete
-          find artifacts/macapp-macos-universal -type f ! -name '*universal*' -delete
+          # latest*.yml（electron-updater metadata）文件名不含架构关键字，必须显式保留
+          # 否则会被前 3 行按 *arm64* / *x64* / *universal* 规则误删
+          find artifacts/macapp-macos-arm64    -type f ! -name '*arm64*'    ! -name 'latest*.yml' -delete
+          find artifacts/macapp-macos-x64       -type f ! -name '*x64*'      ! -name 'latest*.yml' -delete
+          find artifacts/macapp-macos-universal -type f ! -name '*universal*' ! -name 'latest*.yml' -delete
           echo "清理后剩余产物："
           find artifacts -type f | sort
 
