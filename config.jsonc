@@ -1,7 +1,8 @@
 {
   // 目标 URL：Electron 启动后 contentView 会加载此地址
   // will-navigate 拦截从此字段推导 origin；仅接受 http:// 与 https://
-  "targetUrl": "http://localhost:5195/agent-user/assistant",
+  // "targetUrl": "http://localhost:5195/agent-user/assistant",
+  "targetUrl": "https://cloudrender-sche-test.migu.cn:10600/agent-user/assistant",
 
   // 目标 URL 加载失败时的重试次数。设为 0 表示不重试，直接进入错误页
   "maxRetries": 3,
