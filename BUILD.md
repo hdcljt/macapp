@@ -226,10 +226,6 @@ npm config set ELECTRON_BUILDER_BINARIES_MIRROR https://npmmirror.com/mirrors/el
   - 或终端执行 `xattr -dr com.apple.quarantine /Applications/算粒AI助手.app`
   - 或配置正式 Apple Developer ID 签名 + 公证
 
-### Q6: 想要自动更新
-主流方案：[electron-updater](https://www.electron.build/auto-update)
-需要配置 `publish` 字段 + 代码签名。
-
 ### Q7: 启动后看到 splash 一直转圈？
 
 可能原因：
@@ -251,6 +247,35 @@ npm config set ELECTRON_BUILDER_BINARIES_MIRROR https://npmmirror.com/mirrors/el
 
 ---
 
+## 🔄 自动更新机制
+
+应用通过 [electron-updater](https://www.electron.build/auto-update) 从 GitHub Releases 拉取更新。
+
+### 工作原理
+
+1. **客户端**：启动后调 `autoUpdater.checkForUpdates()` → 调 GitHub API 拉 `latest` release 元数据
+2. **元数据**：builder 在构建时生成 `latest.yml`（Windows）+ `latest-mac.yml`（macOS），含 sha512 + 文件路径
+3. **下载**：用户确认后下载新版本安装包（含 Squirrel 差分）
+4. **安装**：Windows 自动 Squirrel 替换 + 重启；macOS 引导用户手动操作
+
+### 平台差异
+
+| 平台 | 增量更新 | 安装方式 |
+|------|----------|----------|
+| Windows (NSIS) | ✅ Squirrel 差分（~10MB 增量） | 自动安装 + 重启 |
+| macOS (ad-hoc 签名) | ❌ 不支持（需 Apple Developer ID） | 用户手动拖入 Applications |
+| macOS (正式签名) | ✅ Squirrel 差分 | 用户拖入 Applications（macOS 限制） |
+
+### CI 集成
+
+现有 `.github/workflows/build-macos.yml` 已自动把 metadata 上传到 GitHub Release，无需额外配置。
+
+只需确保：
+
+- tag 格式为 `v*`（如 `v0.5.0`）
+- `package.json.build.publish` 已配置 `github` provider
+- `--publish never` 在 CI 中保留（让 `release` job 统一上传）
+
 ## 🎯 建议
 
 **MVP 阶段（内部测试）**：
@@ -261,5 +286,5 @@ npm config set ELECTRON_BUILDER_BINARIES_MIRROR https://npmmirror.com/mirrors/el
 **正式发布**：
 - ✅ 配置 Apple 开发者签名
 - ✅ Windows EV 代码签名
-- ✅ 配置自动更新（electron-updater）
+- ✅ 已接入自动更新（electron-updater + GitHub Releases）
 - ✅ 接入 CI/CD 完整流程

@@ -296,6 +296,66 @@ rm ~/Library/Application\ Support/算粒AI助手/logs/main.log*
 del /Q %APPDATA%\算粒AI助手\logs\main.log*
 ```
 
+## 🔄 在线更新
+
+应用启动时会自动检查 GitHub Releases 上的最新版本，发现新版后弹窗让用户确认是否更新。
+
+### 工作流程
+
+1. 应用启动 5 秒内异步检查 GitHub Releases
+2. 发现新版 → 弹窗显示版本号 + Release Notes
+3. 用户选择「立即更新」→ 下载新版本
+4. **Windows**：下载完成后自动安装并重启
+5. **macOS**（ad-hoc 签名场景）：下载 DMG 后需用户手动拖入「应用程序」文件夹
+
+### 配置更新行为
+
+在 `config.jsonc` 中可控制：
+
+```jsonc
+{
+  // 是否启用自动检查更新（默认 true）
+  "autoUpdate": true,
+  // 更新通道：stable（正式版）/ beta（含预发布）
+  "updateChannel": "stable",
+  // dismiss 后静默期（小时）。误点「以后再说」想立即再看 → 改 0 后重启
+  "dismissCooldownHours": 24
+}
+```
+
+### 用户选择
+
+- **「立即更新」**：开始下载 + 进度条 + 下载完成后弹「立即安装」
+- **「以后再说」**：关闭对话框，24 小时内不再提示同一版本
+
+### macOS 签名说明
+
+当前 ad-hoc 签名不支持 Squirrel 增量更新（需要 Apple Developer ID 签名 + 公证）。
+
+**实际行为**：macOS 检测到新版后下载完整 DMG，弹窗引导用户手动替换。
+
+未来配置正式 Apple Developer ID 后，无需修改代码即可启用 macOS 增量更新。
+
+### 调试
+
+dev 模式下查看更新相关日志：
+
+```bash
+# macOS
+tail -f ~/Library/Application\ Support/算粒AI助手/logs/main.log | grep updater
+
+# Windows
+type %APPDATA%\算粒AI助手\logs\main.log | findstr updater
+```
+
+### 关闭自动更新
+
+运维场景下需要禁用，修改部署环境的 `config.jsonc`：
+
+```jsonc
+{ "autoUpdate": false }
+```
+
 ## 🐛 常见问题
 
 ### Q1: Windows 上打包 EPERM 错误？
