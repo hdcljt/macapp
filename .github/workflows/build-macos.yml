@@ -67,6 +67,8 @@ jobs:
             release/**/*.dmg
             release/**/*.zip
             release/**/*.blockmap
+            release/**/latest.yml
+            release/**/latest-mac.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -109,6 +111,8 @@ jobs:
             release/**/*.dmg
             release/**/*.zip
             release/**/*.blockmap
+            release/**/latest.yml
+            release/**/latest-mac.yml
           retention-days: 30
 
   # ============================================================
@@ -159,6 +163,8 @@ jobs:
             release/**/*.exe
             release/**/*.zip
             release/**/*.blockmap
+            release/**/latest.yml
+            release/**/latest-mac.yml
           if-no-files-found: error
           retention-days: 30
 

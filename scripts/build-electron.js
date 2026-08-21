@@ -28,6 +28,8 @@ async function buildElectron() {
     target: 'node18',
     format: 'cjs',
     mainFields: ['module', 'main'],
+    // electron-updater 由 esbuild inline bundle（依赖 electron 自身 API，
+    // 不能 external 化）。预期 main.js 体积 +200KB。
     external: ['electron'],
     sourcemap: true,
     logLevel: 'info',
@@ -47,8 +49,9 @@ async function buildElectron() {
     outfile: path.join(outdir, 'preload.js'),
   });
 
-  // 复制静态资源（splash / retry / error 页面）到 dist-electron
-  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js'];
+  // electron-updater 会被 esbuild inline bundle 进 main.js（无需额外配置）
+  // 但 updater.html / updater.js 是运行时静态资源，必须手动复制到 dist-electron
+  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js', 'updater.html', 'updater.js'];
   for (const file of staticFiles) {
     const src = path.join(root, 'electron', file);
     const dest = path.join(outdir, file);
