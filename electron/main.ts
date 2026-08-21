@@ -7,6 +7,7 @@ declare const __dirname: string;
 import { loadConfig } from './config';
 import type { LoadedConfig } from './config';
 import { logger, initLogger, registerLogHandlers, closeLogger } from './logger';
+import { initUpdater, checkForUpdates } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
@@ -200,6 +201,20 @@ app.whenReady().then(async () => {
   log.info(`config loaded: ${config.width}x${config.height}`);
   createMainWindow(config);
   log.info(`createMainWindow end: ${config.width}x${config.height}`);
+
+  // 主窗口已显示后再启动 updater，任何异常都不能影响主流程
+  setImmediate(() => {
+    try {
+      initUpdater({
+        autoUpdate: config.autoUpdate,
+        updateChannel: config.updateChannel,
+        dismissCooldownHours: config.dismissCooldownHours,
+      });
+      checkForUpdates();
+    } catch (err) {
+      log.error(`updater init failed: ${(err as Error).message}`);
+    }
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
