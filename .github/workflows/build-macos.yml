@@ -155,7 +155,34 @@ jobs:
             echo "Release $TAG_NAME 已存在，跳过创建"
             exit 0
           fi
-          ARGS=("$TAG_NAME" --title "$TAG_NAME" --generate-notes)
+          # 用 commit subjects 当 release notes（替代 --generate-notes，
+          # 后者只产出「Full Changelog: <compare url>」一行，没实际信息）
+          # 1) 取上一个正式 tag（排除当前 tag + rc/beta，避免 prerelease 混入）
+          PREV_TAG=$(git tag --sort=-v:refname \
+            | grep -E '^v[0-9]+(\.[0-9]+)+$' \
+            | grep -v "^${TAG_NAME}$" \
+            | head -1 || true)
+          echo "上一个 tag: ${PREV_TAG:-<首发>}"
+          # 2) 收集 commit subjects，跳过 merge commit
+          #    只保留「【需求/缺陷描述】:」段落，丢掉【修改内容】/【需求/缺陷单号】之后的内容
+          #    （commit message 把所有变更塞在一行，【修改内容】展开后会成 5-10 条 bullet，弹窗里太挤）
+          if [ -z "$PREV_TAG" ]; then
+            NOTES="首次发布"
+          else
+            NOTES=$(git log "${PREV_TAG}..HEAD" \
+              --pretty=format:'%s' \
+              --no-merges \
+              | sed -E \
+                -e 's|.*【需求/缺陷描述】:[[:space:]]+||' \
+                -e 's|【需求/缺陷单号】.*||' \
+                -e 's|【修改内容】.*||' \
+                -e 's|^|- |')
+            # 如果两 tag 间没 commit（直接 rebase 等情况），给个兜底
+            [ -z "$NOTES" ] && NOTES="常规维护与小修补"
+          fi
+          echo "将写入 release body："
+          echo "$NOTES"
+          ARGS=("$TAG_NAME" --title "$TAG_NAME" --notes "$NOTES")
           if [[ "$TAG_NAME" == *rc* || "$TAG_NAME" == *beta* ]]; then
             ARGS+=(--prerelease)
           fi

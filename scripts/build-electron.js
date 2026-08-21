@@ -51,7 +51,7 @@ async function buildElectron() {
 
   // electron-updater 会被 esbuild inline bundle 进 main.js（无需额外配置）
   // 但 updater.html / updater.js 是运行时静态资源，必须手动复制到 dist-electron
-  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js', 'updater.html', 'updater.js'];
+  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js', 'updater.html', 'updater.css', 'updater.js'];
   for (const file of staticFiles) {
     const src = path.join(root, 'electron', file);
     const dest = path.join(outdir, file);

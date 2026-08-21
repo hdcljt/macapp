@@ -91,6 +91,9 @@ function createMainWindow(config: LoadedConfig) {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 16, y: 16 },
     backgroundColor: '#FFFFFF',
+    // 标题带版本号（任务栏一眼能看出当前版本）
+    // 不用 app.getName()：dev 模式下它返回 npm「name」= macapp，不是 productName
+    title: `算粒AI助手 v${app.getVersion()}`,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -98,6 +101,11 @@ function createMainWindow(config: LoadedConfig) {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  // 拦截 content 页通过 document.title 覆盖窗口标题（保险起见；当前架构下 Views 不共享 webContents，正常不会触发）
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   mainWindow.setMenuBarVisibility(false);

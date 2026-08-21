@@ -13,13 +13,68 @@ window.electronAPI.versions.app().then((v) => {
 });
 document.getElementById('latest').textContent = latestVersion || '?';
 
-// Release notes：GitHub --generate-notes 生成的是 HTML，textContent 直接渲染会显示原始 <p><a> 标签。
-// 用 DOMParser 把 HTML 转成纯文本（保留可读结构、剥离标签），textContent 渲染天然防 XSS。
-function htmlToText(html) {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  return (doc.body.textContent || '').trim();
+// Release notes：GitHub Release 的 body 是 markdown（workflow 用 commit subjects 生成）。
+// 这里做一个轻量的 markdown → 安全 HTML 转换：
+//   - 全部用户输入先 HTML 转义
+//   - 仅生成白名单标签：<p> <ul> <ol> <li> <strong> <em> <code>
+//   - 不引入 marked/DOMPurify 等依赖，体积 0
+// CSP `script-src 'self'` 兜底，innerHTML 即便含 <script> 也不会执行
+function mdToSafeHtml(md) {
+  const esc = (s) => s.replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+
+  // inline：在已转义文本上做加粗/斜体/code 替换
+  const inline = (s) => {
+    let r = s;
+    r = r.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+    r = r.replace(/(^|[^*\w])\*([^*\n]+?)\*/g, '$1<em>$2</em>');
+    r = r.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+    return r;
+  };
+
+  const lines = md.split(/\r?\n/);
+  const out = [];
+  let paraBuf = [];
+  let listType = null; // 'ul' | 'ol' | null
+
+  const flushPara = () => {
+    if (paraBuf.length) {
+      out.push('<p>' + inline(esc(paraBuf.join(' '))) + '</p>');
+      paraBuf = [];
+    }
+  };
+  const closeList = () => {
+    if (listType) { out.push('</' + listType + '>'); listType = null; }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (line === '') {
+      flushPara();
+      closeList();
+      continue;
+    }
+    const ul = /^[-\*]\s+(.+)$/.exec(line);
+    const ol = /^(\d+)\.\s+(.+)$/.exec(line);
+    if (ul) {
+      flushPara();
+      if (listType !== 'ul') { closeList(); out.push('<ul>'); listType = 'ul'; }
+      out.push('<li>' + inline(esc(ul[1])) + '</li>');
+    } else if (ol) {
+      flushPara();
+      if (listType !== 'ol') { closeList(); out.push('<ol>'); listType = 'ol'; }
+      out.push('<li>' + inline(esc(ol[2])) + '</li>');
+    } else {
+      closeList();
+      paraBuf.push(line);
+    }
+  }
+  flushPara();
+  closeList();
+  return out.join('');
 }
-document.getElementById('notes').textContent = htmlToText(notes) || '本次更新包含若干改进与问题修复。';
+document.getElementById('notes').innerHTML = mdToSafeHtml(notes) || '本次更新包含若干改进与问题修复。';
 
 // DOM 引用
 const btnUpdate    = document.getElementById('btn-update');
