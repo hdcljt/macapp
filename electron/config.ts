@@ -6,6 +6,9 @@ import { logger } from './logger';
 
 const log = logger.child('config');
 
+/** 更新通道：stable（仅正式版）/ beta（含预发布 rc / beta 版本） */
+export type UpdateChannel = 'stable' | 'beta';
+
 /**
  * 应用配置 schema（7 字段，全部必填）
  */
@@ -24,6 +27,12 @@ export interface AppConfig {
   minWidth: number;
   /** 窗口最小高度（≥ 1 整数） */
   minHeight: number;
+  /** 是否启用在线更新检测（默认 true；运维可设 false 关闭） */
+  autoUpdate: boolean;
+  /** 更新通道：stable（仅正式版）/ beta（含预发布 rc / beta 版本） */
+  updateChannel: UpdateChannel;
+  /** dismiss 后静默期（小时）。0=立即重提示，>0=静默，默认 24 */
+  dismissCooldownHours: number;
 }
 
 /**
@@ -218,6 +227,27 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     errors.push(`height (${o.height}) 必须 >= minHeight (${minHeight})`);
   }
 
+  // autoUpdate
+  if (!('autoUpdate' in o)) {
+    errors.push('字段 autoUpdate 缺失');
+  } else if (typeof o.autoUpdate !== 'boolean') {
+    errors.push(`autoUpdate 必须是 boolean (实际: ${JSON.stringify(o.autoUpdate)})`);
+  }
+
+  // updateChannel
+  if (!('updateChannel' in o)) {
+    errors.push('字段 updateChannel 缺失');
+  } else if (o.updateChannel !== 'stable' && o.updateChannel !== 'beta') {
+    errors.push(`updateChannel 必须是 'stable' 或 'beta' (实际: ${JSON.stringify(o.updateChannel)})`);
+  }
+
+  // dismissCooldownHours
+  if (!('dismissCooldownHours' in o)) {
+    errors.push('字段 dismissCooldownHours 缺失');
+  } else if (!Number.isInteger(o.dismissCooldownHours) || (o.dismissCooldownHours as number) < 0) {
+    errors.push(`dismissCooldownHours 必须是非负整数 (实际: ${JSON.stringify(o.dismissCooldownHours)})`);
+  }
+
   if (errors.length > 0) {
     throw new ConfigValidationError(errors.join('\n  - '), configPath);
   }
@@ -230,6 +260,9 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     height: o.height as number,
     minWidth: o.minWidth as number,
     minHeight: o.minHeight as number,
+    autoUpdate: o.autoUpdate as boolean,
+    updateChannel: o.updateChannel as UpdateChannel,
+    dismissCooldownHours: o.dismissCooldownHours as number,
   };
 }
 

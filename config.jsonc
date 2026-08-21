@@ -16,5 +16,14 @@
 
   // BrowserWindow 最小尺寸（resize 时不低于此值）
   "minWidth": 900,
-  "minHeight": 700
+  "minHeight": 700,
+
+  // 是否启用在线更新检测（启动后自动检查 GitHub Releases）。默认 true
+  "autoUpdate": true,
+
+  // 更新通道：stable（仅正式版）/ beta（含预发布 v*rc* / v*beta*）
+  "updateChannel": "stable",
+
+  // dismiss 后静默期（小时）。误点「以后再说」想立即再看 → 改 0 后重启。默认 24
+  "dismissCooldownHours": 24
 }
