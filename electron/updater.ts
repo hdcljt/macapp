@@ -19,6 +19,10 @@ let updateWindow: BrowserWindow | null = null;
 let dismissedVersion: string | null = null;
 let lastDismissedAt: number = 0;
 let dismissCooldownMs: number = 24 * 60 * 60 * 1000; // 默认 24h，由 config 覆盖
+// 修 Bug 1：autoUpdateEnabled 让 checkForUpdates() 知道当前是否初始化过 feed URL。
+// 之前 autoUpdate:false 时 initUpdater 直接 return，跳过 setFeedURL，
+// 但 main.ts 仍调 checkForUpdates()，autoUpdater 会抛「Feed URL is not provided」被 .catch 吞掉。
+let autoUpdateEnabled = false;
 
 /**
  * 初始化：配置 feed URL + 注册事件 + 注册 IPC。
@@ -30,8 +34,11 @@ export function initUpdater(config: UpdateConfig): void {
 
   if (!config.autoUpdate) {
     log.info('autoUpdate disabled by config');
+    autoUpdateEnabled = false;
     return;
   }
+
+  autoUpdateEnabled = true;
 
   // 配置更新源（GitHub Releases）
   autoUpdater.setFeedURL({
@@ -115,6 +122,10 @@ export function initUpdater(config: UpdateConfig): void {
  * 若用户在该版本的静默期内 dismiss 过则跳过。
  */
 export function checkForUpdates(): void {
+  if (!autoUpdateEnabled) {
+    log.debug('checkForUpdates skipped: autoUpdate disabled');
+    return;
+  }
   if (dismissedVersion && Date.now() - lastDismissedAt < dismissCooldownMs) {
     log.info(`skipped check, dismissed version ${dismissedVersion} still in cooldown`);
     return;

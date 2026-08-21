@@ -164,6 +164,27 @@ function createMainWindow(config: LoadedConfig) {
 
   contentView.webContents.on('render-process-gone', (_event, details) => {
     log.error(`render-process-gone: ${JSON.stringify(details)}`);
+    // 修 Bug 2：renderer 崩溃不能让用户卡在空白页。
+    // 复用现有 retry 流程：还有重试次数则走 retryView + setTimeout(reload)，
+    // 耗尽则直接显示 errorView（让用户主动重试或去 GitHub 反馈）。
+    if (!contentView || contentView.webContents.isDestroyed()) return;
+    if (retryCount < MAX_RETRIES) {
+      retryCount += 1;
+      log.warn(`retry ${retryCount}/${MAX_RETRIES} (after render-process-gone)`);
+      retryView?.webContents.executeJavaScript(
+        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`
+      );
+      showOnly(retryView);
+      setTimeout(() => {
+        loadFailed = false;
+        if (contentView && !contentView.webContents.isDestroyed()) {
+          contentView.webContents.reload();
+        }
+      }, RETRY_DELAY_MS);
+    } else {
+      log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
+      showOnly(errorView);
+    }
   });
 
   contentView.webContents.setWindowOpenHandler(({ url }) => {

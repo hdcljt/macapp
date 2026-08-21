@@ -127,13 +127,10 @@ btnUpdate.addEventListener('click', async () => {
 // 点击「立即安装」
 btnInstall.addEventListener('click', () => {
   if (window.electronAPI.platform === 'darwin') {
-    alert(
-      '更新包已下载到「下载」文件夹（macOS 上 electron-updater 会放到 cache 目录）。\n' +
-      '请退出当前应用后：\n' +
-      '1. 打开 Finder → 找到新版本的 .dmg 或 .zip\n' +
-      '2. 双击挂载，将「算粒AI助手」拖入「应用程序」文件夹\n' +
-      '3. 在「应用程序」中启动新版本'
-    );
+    // macOS：electron-updater 的 quitAndInstall 会自动解压缓存的 zip、替换 .app、再启动。
+    // 不需要用户去 Finder 找 .dmg / .zip（更不存在「下载文件夹」这回事——缓存路径是
+    // ~/Library/Caches/<appName>/Updater/）。简短提示让用户知道会自动退出+重启。
+    alert('即将退出当前应用并自动安装更新，几秒后会自动启动新版本。');
   }
   window.electronAPI.updater.install();
 });
