@@ -8,8 +8,12 @@ const getArg = (key) => {
 
 const isMac = window.electronAPI.platform === 'darwin';
 
-// 填充版本号（当前版本从 preload 注入的 versions.app 读取）
-document.getElementById('current').textContent = window.electronAPI.versions.app || '?';
+// 填充版本号（当前版本从 preload 注入的 versions.app 读取，异步 IPC）
+window.electronAPI.versions.app().then((v) => {
+  document.getElementById('current').textContent = v || '?';
+}).catch(() => {
+  document.getElementById('current').textContent = '?';
+});
 document.getElementById('latest').textContent  = getArg('version') || '?';
 
 // 显示 release notes（原始字符串；无格式化渲染）

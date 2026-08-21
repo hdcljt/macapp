@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     node: process.versions.node,
     chrome: process.versions.chrome,
     electron: process.versions.electron,
-    app: process.env.npm_package_version || 'unknown',
+    // app 版本号经 IPC 取（process.env.npm_package_version 在打包后丢失）
+    app: (): Promise<string> => ipcRenderer.invoke('app:version'),
   },
   retry: () => ipcRenderer.send('retry:request'),
   log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => {

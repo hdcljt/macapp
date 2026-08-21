@@ -15,7 +15,6 @@ export interface UpdateConfig {
 
 // 模块级状态
 let updateWindow: BrowserWindow | null = null;
-let updateInfo: UpdateInfo | null = null;
 let dismissedVersion: string | null = null;
 let lastDismissedAt: number = 0;
 let dismissCooldownMs: number = 24 * 60 * 60 * 1000; // 默认 24h，由 config 覆盖
@@ -25,6 +24,9 @@ let dismissCooldownMs: number = 24 * 60 * 60 * 1000; // 默认 24h，由 config 
  * 必须在 app.whenReady() 之后调用（依赖 app.getVersion()）。
  */
 export function initUpdater(config: UpdateConfig): void {
+  // app:version 始终注册，让 updater dialog 无论 autoUpdate 是否启用都能拿到当前版本
+  ipcMain.handle('app:version', () => app.getVersion());
+
   if (!config.autoUpdate) {
     log.info('autoUpdate disabled by config');
     return;
@@ -53,7 +55,6 @@ export function initUpdater(config: UpdateConfig): void {
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     log.info(`update available: ${info.version} (current: ${app.getVersion()})`);
-    updateInfo = info;
     showUpdateWindow(info);
   });
 
@@ -123,11 +124,11 @@ function showUpdateWindow(info: UpdateInfo): void {
     updateWindow.close();
   }
 
-  // releaseNotes 可能是 string 或 { note: string }[]（GitHub provider 格式）
+  // releaseNotes 可能是 string 或 { note: string | null }[]（GitHub provider 格式）
   const notes = typeof info.releaseNotes === 'string'
     ? info.releaseNotes
     : Array.isArray(info.releaseNotes)
-      ? info.releaseNotes.map((n: any) => n.note || '').join('\n\n')
+      ? info.releaseNotes.map((n: { note: string | null }) => n.note || '').join('\n\n')
       : '';
 
   const focused = BrowserWindow.getFocusedWindow();
