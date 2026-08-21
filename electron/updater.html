@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self';" />
   <title>发现新版本</title>
   <style>
     body {
@@ -78,6 +78,9 @@
       color: #fff;
       border-color: #0071e3;
     }
+    button[hidden] {
+      display: none;
+    }
     button:disabled {
       opacity: 0.5;
       cursor: not-allowed;
@@ -108,7 +111,7 @@
   <div class="error-msg" id="error-msg"></div>
   <div class="actions">
     <button id="btn-later">以后再说</button>
-    <button id="btn-install" class="primary" style="display:none">立即安装</button>
+    <button id="btn-install" class="primary" hidden>立即安装</button>
     <button id="btn-update" class="primary">立即更新</button>
   </div>
   <script src="updater.js"></script>

@@ -6,8 +6,6 @@ const getArg = (key) => {
   return decodeURIComponent(arg.split('=').slice(1).join('='));
 };
 
-const isMac = window.electronAPI.platform === 'darwin';
-
 // 填充版本号（当前版本从 preload 注入的 versions.app 读取，异步 IPC）
 window.electronAPI.versions.app().then((v) => {
   document.getElementById('current').textContent = v || '?';
@@ -16,9 +14,9 @@ window.electronAPI.versions.app().then((v) => {
 });
 document.getElementById('latest').textContent  = getArg('version') || '?';
 
-// 显示 release notes（原始字符串；无格式化渲染）
-const notesText = getArg('notes');
-document.getElementById('notes').textContent = notesText || '本次更新包含若干改进与问题修复。';
+// 显示 release notes：用 textContent 渲染（不解析 markdown / HTML），
+// 天然防 XSS — 即使 GitHub release body 含 <script> 也只会显示为纯文本。
+document.getElementById('notes').textContent = getArg('notes') || '本次更新包含若干改进与问题修复。';
 
 // DOM 引用
 const btnUpdate   = document.getElementById('btn-update');
@@ -41,9 +39,9 @@ window.electronAPI.updater.onProgress((pct) => {
 // 下载完成 → 显示「立即安装」按钮
 window.electronAPI.updater.onDownloaded(() => {
   progressWrap.style.display = 'none';
-  btnUpdate.style.display   = 'none';
-  btnInstall.style.display  = 'inline-block';
-  btnLater.disabled         = false;
+  btnUpdate.hidden   = true;
+  btnInstall.hidden  = false;
+  btnLater.disabled  = false;
 });
 
 // 错误事件
@@ -70,7 +68,7 @@ btnUpdate.addEventListener('click', async () => {
 
 // 点击「立即安装」
 btnInstall.addEventListener('click', () => {
-  if (isMac) {
+  if (window.electronAPI.platform === 'darwin') {
     alert(
       '更新包已下载到「下载」文件夹（macOS 上 electron-updater 会放到 cache 目录）。\n' +
       '请退出当前应用后：\n' +

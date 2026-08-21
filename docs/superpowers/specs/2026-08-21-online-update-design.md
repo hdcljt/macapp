@@ -253,13 +253,15 @@ function onUpdateAvailable(info: UpdateInfo): void {
 function showUpdateWindow(info: UpdateInfo): void {
   updateWindow = new BrowserWindow({
     width: 480,
-    height: 320,
+    height: 360,  // 实测比 320 容纳 macOS install 引导提示更舒服
     resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     title: '发现新版本',
-    parent: BrowserWindow.getFocusedWindow() ?? mainWindow ?? undefined,
+    // updater.ts 模块无 mainWindow 引用，用 getAllWindows()[0] 兜底，
+    // 效果等价（启动瞬间主窗口必然存在）
+    parent: BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined,
     modal: process.platform === 'darwin',
     alwaysOnTop: false,
     skipTaskbar: process.platform === 'darwin',

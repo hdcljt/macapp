@@ -64,18 +64,23 @@ export function initUpdater(config: UpdateConfig): void {
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const pct = progress.percent;
+    // 用户关闭对话框后 updateWindow=null，但仍可能收到后续 progress 事件，
+    // 仅 log.debug 不发 IPC（webContents.send 会被可选链静默吞掉）
+    if (!updateWindow?.webContents || updateWindow.isDestroyed()) return;
     log.debug(`progress: ${pct.toFixed(1)}%`);
-    updateWindow?.webContents.send('updater:progress', pct);
+    updateWindow.webContents.send('updater:progress', pct);
   });
 
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     log.info(`downloaded: ${info.version}`);
-    updateWindow?.webContents.send('updater:downloaded');
+    if (!updateWindow?.webContents || updateWindow.isDestroyed()) return;
+    updateWindow.webContents.send('updater:downloaded');
   });
 
   autoUpdater.on('error', (err: Error) => {
     log.error(`updater error: ${err.message}`);
-    updateWindow?.webContents.send('updater:error', err.message);
+    if (!updateWindow?.webContents || updateWindow.isDestroyed()) return;
+    updateWindow.webContents.send('updater:error', err.message);
   });
 
   // IPC handlers（updater.html 通过 preload 触发）
@@ -91,7 +96,8 @@ export function initUpdater(config: UpdateConfig): void {
 
   ipcMain.handle('updater:install', () => {
     log.info('user triggered install, quitting...');
-    // 第二个参数 true = silent 安装（Windows 自动）
+    // 第二个参数 true = silent 安装（仅 Windows 生效：Squirrel 自动替换 + 重启）
+    // macOS 上 silent 参数无效，electron-updater 在 macOS 走手动替换流程
     autoUpdater.quitAndInstall(false, true);
   });
 
@@ -131,6 +137,9 @@ function showUpdateWindow(info: UpdateInfo): void {
       ? info.releaseNotes.map((n: { note: string | null }) => n.note || '').join('\n\n')
       : '';
 
+  // parent 选择：focused → 任意窗口 → 不绑定。
+  // 注：spec §3.1 写的是 `getFocusedWindow() ?? mainWindow`，但 updater.ts 模块
+  // 无法访问 mainWindow（不同模块作用域），用 getAllWindows()[0] 兜底等价。
   const focused = BrowserWindow.getFocusedWindow();
   const parent = focused ?? (BrowserWindow.getAllWindows()[0] ?? undefined);
 

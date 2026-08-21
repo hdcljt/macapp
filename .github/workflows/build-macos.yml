@@ -10,15 +10,13 @@ permissions:
 
 jobs:
   # ============================================================
-  # macOS 分架构构建 (Intel + Apple Silicon)
+  # macOS Universal（同时产出 arm64 + x64 + universal 三套 dmg/zip）
+  # universal job 在 Apple Silicon runner 上一次跑完所有架构，
+  # 省去分架构 job 的 latest-mac.yml 冲突和冗余 cleanup 步骤。
   # ============================================================
   build-macos:
-    name: macOS (${{ matrix.arch }})
+    name: macOS Universal
     runs-on: macos-14
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, arm64]
 
     steps:
       - name: Checkout
@@ -42,8 +40,8 @@ jobs:
       - name: 生成图标（含 .icns）
         run: npm run icon:generate
 
-      - name: 打包 macOS (${{ matrix.arch }})
-        run: npm run build:mac -- --${{ matrix.arch }} --publish never
+      - name: 打包 macOS Universal
+        run: npm run build:mac:universal -- --publish never
         env:
           # 内部分发，禁用签名与公证
           CSC_IDENTITY_AUTO_DISCOVERY: false
@@ -62,57 +60,13 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: macapp-macos-${{ matrix.arch }}
-          path: |
-            release/**/*.dmg
-            release/**/*.zip
-            release/**/*.blockmap
-            release/**/latest.yml
-            release/**/latest-mac.yml
-          if-no-files-found: error
-          retention-days: 30
-
-  # ============================================================
-  # macOS Universal（双架构合并包）
-  # ============================================================
-  build-macos-universal:
-    name: macOS Universal
-    runs-on: macos-14
-    needs: build-macos
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-
-      - name: 配置 npm 镜像
-        run: |
-          npm config set registry https://registry.npmmirror.com
-          echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
-          echo "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/" >> $GITHUB_ENV
-
-      - run: npm ci
-      - run: npm run icon:generate
-
-      - name: 打包 Universal
-        run: npm run build:mac:universal -- --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
-          APPLE_ID: ""
-          APPLE_APP_SPECIFIC_PASSWORD: ""
-          APPLE_TEAM_ID: ""
-
-      - uses: actions/upload-artifact@v4
-        with:
           name: macapp-macos-universal
           path: |
             release/**/*.dmg
             release/**/*.zip
             release/**/*.blockmap
-            release/**/latest.yml
             release/**/latest-mac.yml
+          if-no-files-found: error
           retention-days: 30
 
   # ============================================================
@@ -164,7 +118,6 @@ jobs:
             release/**/*.zip
             release/**/*.blockmap
             release/**/latest.yml
-            release/**/latest-mac.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -174,7 +127,7 @@ jobs:
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-macos, build-macos-universal, build-windows]
+    needs: [build-macos, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -187,26 +140,9 @@ jobs:
       - name: 列出产物
         run: find artifacts -type f | sort
 
-      # electron-builder 在 macOS Apple Silicon runner 上即便指定 --arm64 / --x64
-      # 也会同时产出 arm64 + x64 双架构 dmg/zip（universal job 还会产三套），
-      # 同 release 下同名 asset 会撞 422 (ReleaseAsset.name already exists)。
-      # 按 build job 拆目录名精确裁剪，让每个目录只保留对应架构的产物。
-      - name: 清理多架构构建中冗余的产物
-        run: |
-          set -euo pipefail
-          # latest*.yml（electron-updater metadata）文件名不含架构关键字，必须显式保留
-          # 否则会被前 3 行按 *arm64* / *x64* / *universal* 规则误删
-          find artifacts/macapp-macos-arm64    -type f ! -name '*arm64*'    ! -name 'latest*.yml' -delete
-          find artifacts/macapp-macos-x64       -type f ! -name '*x64*'      ! -name 'latest*.yml' -delete
-          find artifacts/macapp-macos-universal -type f ! -name '*universal*' ! -name 'latest*.yml' -delete
-          echo "清理后剩余产物："
-          find artifacts -type f | sort
-
       # 用 gh CLI 替换 softprops/action-gh-release@v2。
-      # 原 softprops 走"先 upload 再 PATCH label"的两段式，在并发文件下
-      # 会撞 GitHub release asset 的写后读延迟窗口（PATCH 时 asset_id 404）。
-      # gh release create + gh release upload --clobber 走单步原子 API，
-      # 不再有后续 PATCH，从根上避开这个竞态。
+      # 简化到 universal-only 后无跨 job 并发上传，避免 softprops 两段式
+      # upload + PATCH label 在并发下的 asset_id 404 竞态。
       - name: 创建 Release（不带任何 asset；已存在则跳过，覆盖走 --clobber）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

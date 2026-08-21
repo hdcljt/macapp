@@ -302,7 +302,7 @@ del /Q %APPDATA%\算粒AI助手\logs\main.log*
 
 ### 工作流程
 
-1. 应用启动 5 秒内异步检查 GitHub Releases
+1. 应用启动后异步检查 GitHub Releases
 2. 发现新版 → 弹窗显示版本号 + Release Notes
 3. 用户选择「立即更新」→ 下载新版本
 4. **Windows**：下载完成后自动安装并重启
@@ -329,6 +329,8 @@ del /Q %APPDATA%\算粒AI助手\logs\main.log*
 - **「以后再说」**：关闭对话框，24 小时内不再提示同一版本
 
 ### macOS 签名说明
+
+> ⚠️ **首次启动会触发 Gatekeeper**：因项目使用 ad-hoc 签名（未走 Apple Developer ID + 公证），macOS 首次启动 dmg 时会弹「无法验证开发者」或「已损坏」警告。处理方式：在「系统设置 → 隐私与安全性」点「仍要打开」或在终端执行 `xattr -dr com.apple.quarantine /Applications/算粒AI助手.app` 后即可正常运行。
 
 当前 ad-hoc 签名不支持 Squirrel 增量更新（需要 Apple Developer ID 签名 + 公证）。
 
