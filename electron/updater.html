@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>发现新版本</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      padding: 24px;
+      margin: 0;
+      color: #1d1d1f;
+      background: #ffffff;
+      user-select: none;
+    }
+    .version {
+      font-size: 13px;
+      color: #86868b;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 12px;
+    }
+    .notes {
+      font-size: 13px;
+      color: #424245;
+      max-height: 120px;
+      overflow-y: auto;
+      background: #f5f5f7;
+      padding: 10px 12px;
+      border-radius: 6px;
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    .progress-wrap {
+      margin-top: 16px;
+      display: none;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #e5e5ea;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #0071e3;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .progress-label {
+      font-size: 11px;
+      color: #86868b;
+      margin-top: 4px;
+      text-align: right;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    button {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid #d2d2d7;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      color: #1d1d1f;
+      font-family: inherit;
+    }
+    button.primary {
+      background: #0071e3;
+      color: #fff;
+      border-color: #0071e3;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    button:focus {
+      outline: 2px solid #0071e3;
+      outline-offset: 1px;
+    }
+    .error-msg {
+      margin-top: 12px;
+      padding: 8px 12px;
+      background: #fff2f2;
+      border-radius: 6px;
+      color: #d70015;
+      font-size: 12px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="version">v<span id="current"></span> → v<span id="latest"></span></div>
+  <h1>发现新版本</h1>
+  <div class="notes" id="notes"></div>
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
+    <div class="progress-label" id="progress-label">下载中… 0%</div>
+  </div>
+  <div class="error-msg" id="error-msg"></div>
+  <div class="actions">
+    <button id="btn-later">以后再说</button>
+    <button id="btn-install" class="primary" style="display:none">立即安装</button>
+    <button id="btn-update" class="primary">立即更新</button>
+  </div>
+  <script src="updater.js"></script>
+</body>
+</html>
