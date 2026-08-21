@@ -1,6 +1,7 @@
 import { autoUpdater, UpdateInfo, ProgressInfo } from 'electron-updater';
 import { BrowserWindow, ipcMain, app } from 'electron';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { logger } from './logger';
 import type { UpdateChannel } from './config';
 
@@ -162,10 +163,9 @@ function showUpdateWindow(info: UpdateInfo): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      additionalArguments: [
-        `--update-version=${info.version}`,
-        `--update-notes=${encodeURIComponent(notes)}`,
-      ],
+      // ❌ 不用 additionalArguments：sandboxed renderer 中 process.argv 不保证包含这些参数，
+      // 会导致 updater.js 第 2 行 process.argv.filter 抛 TypeError，整个脚本崩在按钮事件绑定之前
+      // ✅ 改用 URL query string 传 version/notes，renderer 用 URLSearchParams 解析
     },
   });
 
@@ -180,7 +180,12 @@ function showUpdateWindow(info: UpdateInfo): void {
     updateWindow = null;
   });
 
-  updateWindow.loadFile(path.join(__dirname, 'updater.html'));
+  // 用 URL query string 传 version/notes（替代 additionalArguments，sandbox 安全）
+  // URLSearchParams 自动处理编码；file:// URL 用 pathToFileURL 跨平台安全
+  const fileUrl = pathToFileURL(path.join(__dirname, 'updater.html'));
+  fileUrl.searchParams.set('version', info.version);
+  fileUrl.searchParams.set('notes', notes);
+  updateWindow.loadURL(fileUrl.toString());
 }
 
 /** 关闭对话框 */

@@ -1,10 +1,9 @@
-// 解析 preload 通过 additionalArguments 传入的版本信息
-const args = process.argv.filter(a => a.startsWith('--update-'));
-const getArg = (key) => {
-  const arg = args.find(a => a.startsWith(`--update-${key}=`));
-  if (!arg) return '';
-  return decodeURIComponent(arg.split('=').slice(1).join('='));
-};
+// 解析主进程通过 URL query string 传入的版本信息
+// （替代之前的 process.argv + additionalArguments：sandboxed renderer 不保证 process.argv 可用，
+//  否则第 2 行 process.argv.filter 会抛 TypeError，导致整个脚本崩在按钮事件绑定之前 → 按钮无响应）
+const params = new URLSearchParams(window.location.search);
+const latestVersion = params.get('version') || '';
+const notes = params.get('notes') || '';
 
 // 填充版本号（当前版本从 preload 注入的 versions.app 读取，异步 IPC）
 window.electronAPI.versions.app().then((v) => {
@@ -12,11 +11,11 @@ window.electronAPI.versions.app().then((v) => {
 }).catch(() => {
   document.getElementById('current').textContent = '?';
 });
-document.getElementById('latest').textContent  = getArg('version') || '?';
+document.getElementById('latest').textContent = latestVersion || '?';
 
 // 显示 release notes：用 textContent 渲染（不解析 markdown / HTML），
 // 天然防 XSS — 即使 GitHub release body 含 <script> 也只会显示为纯文本。
-document.getElementById('notes').textContent = getArg('notes') || '本次更新包含若干改进与问题修复。';
+document.getElementById('notes').textContent = notes || '本次更新包含若干改进与问题修复。';
 
 // DOM 引用
 const btnUpdate   = document.getElementById('btn-update');
@@ -26,7 +25,7 @@ const progressWrap = document.getElementById('progress-wrap');
 const progressLabel = document.getElementById('progress-label');
 const fill = document.getElementById('fill');
 const errorMsg = document.getElementById('error-msg');
-const version = getArg('version');
+const version = latestVersion;
 
 // 进度事件
 window.electronAPI.updater.onProgress((pct) => {
