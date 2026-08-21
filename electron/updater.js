@@ -5,7 +5,7 @@ const params = new URLSearchParams(window.location.search);
 const latestVersion = params.get('version') || '';
 const notes = params.get('notes') || '';
 
-// 填充版本号（当前版本从 preload 注入的 versions.app 读取，异步 IPC）
+// 当前版本经 IPC 取（process.env.npm_package_version 在打包后丢失）
 window.electronAPI.versions.app().then((v) => {
   document.getElementById('current').textContent = v || '?';
 }).catch(() => {
@@ -13,31 +13,35 @@ window.electronAPI.versions.app().then((v) => {
 });
 document.getElementById('latest').textContent = latestVersion || '?';
 
-// 显示 release notes：用 textContent 渲染（不解析 markdown / HTML），
-// 天然防 XSS — 即使 GitHub release body 含 <script> 也只会显示为纯文本。
-document.getElementById('notes').textContent = notes || '本次更新包含若干改进与问题修复。';
+// Release notes：GitHub --generate-notes 生成的是 HTML，textContent 直接渲染会显示原始 <p><a> 标签。
+// 用 DOMParser 把 HTML 转成纯文本（保留可读结构、剥离标签），textContent 渲染天然防 XSS。
+function htmlToText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body.textContent || '').trim();
+}
+document.getElementById('notes').textContent = htmlToText(notes) || '本次更新包含若干改进与问题修复。';
 
 // DOM 引用
-const btnUpdate   = document.getElementById('btn-update');
-const btnInstall  = document.getElementById('btn-install');
-const btnLater    = document.getElementById('btn-later');
+const btnUpdate    = document.getElementById('btn-update');
+const btnInstall   = document.getElementById('btn-install');
+const btnLater     = document.getElementById('btn-later');
 const progressWrap = document.getElementById('progress-wrap');
 const progressLabel = document.getElementById('progress-label');
-const fill = document.getElementById('fill');
-const errorMsg = document.getElementById('error-msg');
-const version = latestVersion;
+const fill         = document.getElementById('fill');
+const errorMsg     = document.getElementById('error-msg');
+const version      = latestVersion;
 
 // 进度事件
 window.electronAPI.updater.onProgress((pct) => {
-  progressWrap.style.display = 'block';
+  progressWrap.hidden = false;
   const rounded = Math.round(pct);
   fill.style.width = rounded + '%';
-  progressLabel.textContent = `下载中… ${rounded}%`;
+  progressLabel.textContent = rounded + '%';
 });
 
 // 下载完成 → 显示「立即安装」按钮
 window.electronAPI.updater.onDownloaded(() => {
-  progressWrap.style.display = 'none';
+  progressWrap.hidden = true;
   btnUpdate.hidden   = true;
   btnInstall.hidden  = false;
   btnLater.disabled  = false;
@@ -45,7 +49,7 @@ window.electronAPI.updater.onDownloaded(() => {
 
 // 错误事件
 window.electronAPI.updater.onError((msg) => {
-  errorMsg.style.display = 'block';
+  errorMsg.hidden = false;
   errorMsg.textContent = `下载失败：${msg}\n请前往 GitHub Releases 手动下载最新版本。`;
   btnUpdate.disabled = false;
   btnLater.disabled  = false;
@@ -58,7 +62,7 @@ btnUpdate.addEventListener('click', async () => {
   try {
     await window.electronAPI.updater.download();
   } catch (err) {
-    errorMsg.style.display = 'block';
+    errorMsg.hidden = false;
     errorMsg.textContent = '启动下载失败：' + (err.message || err);
     btnUpdate.disabled = false;
     btnLater.disabled  = false;

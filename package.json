@@ -1,6 +1,6 @@
 {
   "name": "macapp",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "AI 桌面助手 - macOS",
   "main": "dist-electron/main.js",
   "author": "Your Team",
@@ -74,7 +74,7 @@
       "identity": "-",
       "darkModeSupport": true,
       "minimumSystemVersion": "10.15.0",
-      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "artifactName": "${name}-${version}-${arch}.${ext}",
       "extendInfo": {
         "NSHumanReadableCopyright": "Copyright © 2026 Your Team",
         "NSMicrophoneUsageDescription": "算粒AI助手需要使用麦克风来识别语音指令",
@@ -102,7 +102,7 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-${arch}-Setup.${ext}"
+      "artifactName": "${name}-${version}-${arch}-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
