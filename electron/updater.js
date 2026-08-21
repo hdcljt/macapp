@@ -45,11 +45,7 @@ window.electronAPI.updater.onDownloaded(() => {
 // 错误事件
 window.electronAPI.updater.onError((msg) => {
   errorMsg.style.display = 'block';
-  if (isMac) {
-    errorMsg.textContent = `下载失败：${msg}\n请前往 GitHub Releases 手动下载最新版本。`;
-  } else {
-    errorMsg.textContent = `下载失败：${msg}\n请前往 GitHub Releases 手动下载最新版本。`;
-  }
+  errorMsg.textContent = `下载失败：${msg}\n请前往 GitHub Releases 手动下载最新版本。`;
   btnUpdate.disabled = false;
   btnLater.disabled  = false;
 });
