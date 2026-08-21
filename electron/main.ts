@@ -1,5 +1,6 @@
 import { app, BrowserWindow, WebContentsView, ipcMain, shell } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // CJS 模式下 __dirname 是内置的；ESM 模式下需要用 import.meta.url
 declare const __dirname: string;
@@ -27,8 +28,12 @@ function showOnly(view: WebContentsView | null) {
   contentView?.setVisible(view === contentView);
 }
 
-/** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML */
-function createView(htmlFile: string): WebContentsView {
+/** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML
+ * @param htmlFile HTML 文件名（相对于 dist-electron/）
+ * @param query 可选 query string 参数。sandboxed renderer 中 process.argv 不可靠，
+ *              用 URL query string 传数据是 sandbox 安全的做法（参考 updater.ts）
+ */
+function createView(htmlFile: string, query?: Record<string, string>): WebContentsView {
   const view = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -39,7 +44,15 @@ function createView(htmlFile: string): WebContentsView {
   });
   const [w, h] = mainWindow!.getContentSize();
   view.setBounds({ x: 0, y: 0, width: w, height: h });
-  view.webContents.loadFile(path.join(__dirname, htmlFile));
+  if (query && Object.keys(query).length > 0) {
+    const fileUrl = pathToFileURL(path.join(__dirname, htmlFile));
+    for (const [k, v] of Object.entries(query)) {
+      fileUrl.searchParams.set(k, v);
+    }
+    view.webContents.loadURL(fileUrl.toString());
+  } else {
+    view.webContents.loadFile(path.join(__dirname, htmlFile));
+  }
   mainWindow!.contentView.addChildView(view);
   view.setVisible(false);
   return view;
@@ -95,7 +108,8 @@ function createMainWindow(config: LoadedConfig) {
   // 创建四个 View：loading / retry / error / content(URL)
   loadingView = createView('splash.html');
   retryView = createView('retry.html');
-  errorView = createView('error.html');
+  // errorView 需要展示 targetUrl 给用户（提示哪个服务连不上）
+  errorView = createView('error.html', { targetUrl: TARGET_URL });
   contentView = createUrlView(TARGET_URL); // URL 内容用自己的 View
 
   // 初始显示 loadingView
