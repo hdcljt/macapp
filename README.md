@@ -407,11 +407,13 @@ app 一启动**立即**显示离线兜底页（Vite 产物，无网络依赖）�
 
 ```bash
 npm run dev:offline
-# 浏览器打开 http://localhost:5195/
+# 浏览器打开 http://localhost:5175/
 ```
 
 仅启动 Vite dev server，不依赖 Electron 主进程，方便 UI 调试与样式调整。
 注意：dev 模式没有 `window.electronAPI`（preload 只在 Electron 中运行），TopBar 不会显示连接状态 toast，保持默认「重新连接」按钮可点击（仅 console 提示）。
+
+端口选择：5175 是 Vite 5+ 默认端口，且与 `targetUrl` 常用的 5195（deerflow agent-user dev server）不冲突——调试离线页 UI 时可同时跑两端做对比。
 
 ## 🐛 常见问题
 

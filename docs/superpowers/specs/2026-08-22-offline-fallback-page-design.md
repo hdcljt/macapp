@@ -166,7 +166,7 @@ export default defineConfig({
     assetsDir: 'assets',
   },
   server: {
-    port: 5195,                                // 可选：与 deerflow agent-user dev server 同端口，方便对比 UI
+    port: 5175,                                // 与 deerflow agent-user dev server (5195) 错开，可同时跑两端做对比
     strictPort: true,
   },
 });
@@ -411,7 +411,7 @@ function showOnly(view: WebContentsView | null) {
 
 ```bash
 npm run dev:offline
-# 浏览器访问 http://localhost:5195/
+# 浏览器访问 http://localhost:5175/
 # 验证：UI 与 http://localhost:5195/agent-user/assistant 一致
 # 验证：mock 数据正常展示（无 console error / 无 404）
 ```

@@ -161,7 +161,7 @@ export default defineConfig({
     target: 'chrome120',
   },
   server: {
-    port: 5195,
+    port: 5175,
     strictPort: true,
   },
 });
@@ -744,11 +744,11 @@ cd d:/hudc/git/gitlab/pc/macapp
 npm run dev:offline &
 ```
 
-Expected: Vite reports `Local: http://localhost:5195/`.
+Expected: Vite reports `Local: http://localhost:5175/`.
 
 ### Step 2: Open browser and inspect
 
-Open `http://localhost:5195/` in browser. Verify:
+Open `http://localhost:5175/` in browser. Verify:
 
 - [ ] 顶部 TopBar 显示「算粒AI助手」标题 + hamburger + 「+」按钮
 - [ ] AI 应用切换条水平滚动可见 6 个 app（千问/Kimi/智谱/MiniMax/可灵/Vidu）
@@ -1231,7 +1231,7 @@ Expected: Both `dist-electron/main.js` and `dist-electron/offline-app/index.html
 ```bash
 cd d:/hudc/git/gitlab/pc/macapp
 npm run dev:offline &
-# Browser opens http://localhost:5195/
+# Browser opens http://localhost:5175/
 ```
 
 Verify (Task 5 checklist):

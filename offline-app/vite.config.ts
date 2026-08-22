@@ -17,7 +17,7 @@ export default defineConfig({
     target: 'chrome120',
   },
   server: {
-    port: 5195,
+    port: 5175,
     strictPort: true,
   },
 });
