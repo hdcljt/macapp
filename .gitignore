@@ -44,3 +44,6 @@ yarn-error.log*
 
 # 打包临时
 *.blockmap
+
+# Playwright 测试产物（手动调试时生成）
+.playwright-mcp/
