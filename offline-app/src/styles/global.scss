@@ -1,5 +1,12 @@
 @use './variables.scss' as *;
 
+// 暴露 CSS custom properties，给组件内 var(--macapp-*) 使用
+:root {
+  --macapp-shadow-card-hover: #{$shadow-card-hover};
+  --macapp-active-blue: #{$color-active-blue};
+  --macapp-active-glow: #{$color-active-glow};
+}
+
 html, body, #app {
   height: 100%;
   margin: 0;
