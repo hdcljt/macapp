@@ -1,6 +1,6 @@
 {
   "name": "macapp",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "AI 桌面助手 - macOS",
   "main": "dist-electron/main.js",
   "author": "Your Team",
