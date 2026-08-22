@@ -12,12 +12,12 @@
     "build:electron": "node scripts/build-electron.js",
     "build:offline": "npm --prefix offline-app install --no-audit --no-fund && npm --prefix offline-app run build",
     "icon:generate": "node scripts/generate-icons.js",
-    "build": "npm run build:electron && npm run build:offline",
-    "build:mac": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac",
-    "build:win": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --win",
+    "build": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder && npm run build:offline",
+    "build:mac": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac && npm run build:offline",
+    "build:win": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --win && npm run build:offline",
     "build:win:zip": "node scripts/build-windows.js",
     "build:win:nsis": "node scripts/build-windows-installer.js",
-    "build:mac:universal": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac --universal"
+    "build:mac:universal": "npm run icon:generate && npm run build:electron && cross-env ELECTRON_RUN_AS_NODE=0 electron-builder --mac --universal && npm run build:offline"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
