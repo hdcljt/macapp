@@ -11,13 +11,18 @@ import { logger, initLogger, registerLogHandlers, closeLogger } from './logger';
 import { initUpdater, checkForUpdates } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
+
+// 当前可见的 Views 集合（offline-first 模式用 2 个：offlineView + contentView；
+// legacy 模式用 4 个：loadingView + retryView + errorView + contentView）
 let loadingView: WebContentsView | null = null;
 let retryView: WebContentsView | null = null;
 let errorView: WebContentsView | null = null;
-let offlineView: WebContentsView | null = null; // 离线兜底页面（useOfflineFallback=true 时使用）
-let contentView: WebContentsView | null = null; // URL 内容也用 View 承载，避免默认 webContents 空白穿透
+let offlineView: WebContentsView | null = null; // offline-first 模式专用
+let contentView: WebContentsView | null = null;
+
 let retryCount = 0;
 let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
+let offlineReady = false; // offline-first 模式：offlineView 的 renderer 是否已就绪（IPC 可用）
 
 const log = logger.child('main');
 
@@ -28,6 +33,26 @@ function showOnly(view: WebContentsView | null) {
   errorView?.setVisible(view === errorView);
   offlineView?.setVisible(view === offlineView);
   contentView?.setVisible(view === contentView);
+}
+
+/** 收集当前所有可见的 View 集合，用于 resize 同步 bounds */
+function allViews(): WebContentsView[] {
+  return [loadingView, retryView, errorView, offlineView, contentView].filter(
+    (v): v is WebContentsView => v !== null,
+  );
+}
+
+/**
+ * offline-first 模式：向 offlineView 推「URL 加载状态」事件。
+ * 安全发送：offlineView 销毁/未就绪时静默忽略。
+ */
+function emitLoadingState(state: 'show' | 'hide') {
+  if (!offlineView || offlineView.webContents.isDestroyed()) return;
+  if (!offlineReady) {
+    log.debug(`offlineView not ready, drop loading:${state}`);
+    return;
+  }
+  offlineView.webContents.send('online:loading', state);
 }
 
 /** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML
@@ -78,17 +103,9 @@ function createUrlView(url: string): WebContentsView {
   return view;
 }
 
-function createMainWindow(config: LoadedConfig) {
-  const isDev = !app.isPackaged;
-  const TARGET_URL = config.targetUrl;
-  const MAX_RETRIES = config.maxRetries;
-  const RETRY_DELAY_MS = config.retryDelayMs;
-  const ALLOWED_ORIGIN_PREFIX = config.allowedOriginPrefix;
-  const OFFLINE_PAGE = 'offline-app/index.html';
-  const useOffline = config.useOfflineFallback;
-  log.info(`view strategy: ${useOffline ? 'offline-fallback' : 'retry-then-error'}`);
-
-  mainWindow = new BrowserWindow({
+/** 共用：创建 BrowserWindow 基础配置（两个模式共用） */
+function createBaseWindow(config: LoadedConfig): BrowserWindow {
+  const win = new BrowserWindow({
     width: config.width,
     height: config.height,
     minWidth: config.minWidth,
@@ -107,41 +124,153 @@ function createMainWindow(config: LoadedConfig) {
       sandbox: false,
     },
   });
+  // 拦截 content 页通过 document.title 覆盖窗口标题
+  win.on('page-title-updated', (event) => event.preventDefault());
+  win.setMenuBarVisibility(false);
+  return win;
+}
 
-  // 拦截 content 页通过 document.title 覆盖窗口标题（保险起见；当前架构下 Views 不共享 webContents，正常不会触发）
-  mainWindow.on('page-title-updated', (event) => {
-    event.preventDefault();
+/** 共用：给 contentView 绑定 will-navigate 拦截 + setWindowOpenHandler */
+function attachContentViewCommonHandlers(allowedOriginPrefix: string) {
+  if (!contentView) return;
+  contentView.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:')) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  contentView.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(allowedOriginPrefix)) {
+      event.preventDefault();
+      log.warn(`will-navigate blocked: ${url}`);
+    }
+  });
+}
+
+/** 共用：resize 同步 bounds */
+function attachResizeHandler(win: BrowserWindow) {
+  win.on('resize', () => {
+    if (!win || win.isDestroyed()) return;
+    const [w, h] = win.getContentSize();
+    for (const v of allViews()) {
+      v.setBounds({ x: 0, y: 0, width: w, height: h });
+    }
+  });
+}
+
+// =============================================================================
+// 模式 A：offline-first（v0.5.7+，useOfflineFallback=true 默认）
+// 启动立即显示 offlineView（本地 Vite 产物）→ 异步加载 contentView
+// 成功 → 切到 contentView；失败/崩溃 → 留在 offlineView，TopBar「重新连接」可点
+// =============================================================================
+function createMainWindowOfflineFirst(config: LoadedConfig) {
+  const isDev = !app.isPackaged;
+  const TARGET_URL = config.targetUrl;
+  const OFFLINE_PAGE = 'offline-app/index.html';
+  log.info('view strategy: offline-first');
+
+  mainWindow = createBaseWindow(config);
+  offlineView = createView(OFFLINE_PAGE);
+  contentView = createUrlView(TARGET_URL);
+
+  // 等 offlineView 就绪后再发 IPC，否则事件丢失
+  offlineView.webContents.once('did-finish-load', () => {
+    offlineReady = true;
+    log.info('offlineView did-finish-load, ready to receive IPC');
+    emitLoadingState('show');
+  });
+  offlineView.webContents.once('did-fail-load', (_e, code, desc) => {
+    log.error(`offlineView did-fail-load: ${code} ${desc} (兜底页本身加载失败，2s 后重试)`);
+    setTimeout(() => {
+      if (offlineView && !offlineView.webContents.isDestroyed()) {
+        offlineView.webContents.reload();
+      }
+    }, 2000);
   });
 
-  mainWindow.setMenuBarVisibility(false);
-
-  // 关键修复：默认 webContents 不加载 URL，避免 URL 为空白/慢加载时穿透到背景
-  // 改用一个 WebContentsView 承载 URL 内容
-
-  // 创建 View：loading + (offlineView 或 retryView+errorView) + contentView
-  loadingView = createView('splash.html');
-  if (useOffline) {
-    // 离线模式：只创建 loadingView + offlineView + contentView（retry/error 不创建）
-    offlineView = createView(OFFLINE_PAGE);
-    log.info('offlineView created (offline fallback mode)');
-  } else {
-    // 原 retry/error 模式
-    retryView = createView('retry.html');
-    // errorView 需要展示 targetUrl 给用户（提示哪个服务连不上）
-    errorView = createView('error.html', { targetUrl: TARGET_URL });
-    log.info('retryView + errorView created (legacy mode)');
-  }
-  contentView = createUrlView(TARGET_URL); // URL 内容用自己的 View
-
-  // 初始显示 loadingView
-  showOnly(loadingView);
-
-  // 立即显示窗口（带着 loadingView），让用户看到加载 UI
+  showOnly(offlineView);
   mainWindow.show();
 
-  // URL 内容加载成功（用 contentView.webContents 监听，不是默认 webContents）
-  // 注意：did-finish-load 也会在 ERR_CONNECTION_REFUSED 触发的 ERR 页面加载完之后被触发，
-  // 因此必须配合 loadFailed 标志判断：仅当最近一次加载未失败时才切换到 contentView
+  // contentView 事件：成功切到 contentView，失败/崩溃都只发 'hide'，view 不动
+  contentView.webContents.on('did-finish-load', () => {
+    if (loadFailed) {
+      log.debug('content view did-finish-load but load was marked as failed, ignoring');
+      return;
+    }
+    log.info('content view did-finish-load, switching to contentView');
+    emitLoadingState('hide');
+    showOnly(contentView);
+  });
+  contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    loadFailed = true;
+    log.error(`content view did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
+    emitLoadingState('hide');
+    // 留在 offlineView，不切 view
+  });
+  contentView.webContents.on('render-process-gone', (_event, details) => {
+    log.error(`content view render-process-gone: ${JSON.stringify(details)}`);
+    if (!contentView || contentView.webContents.isDestroyed()) return;
+    emitLoadingState('hide');
+    // 留在 offlineView，不切 view
+  });
+
+  attachContentViewCommonHandlers(config.allowedOriginPrefix);
+  attachResizeHandler(mainWindow);
+
+  // error.html 「重试」按钮（兜底，理论上 offline-first 模式不会切到 errorView）
+  ipcMain.on('retry:request', () => {
+    log.info('user triggered retry from error view (legacy)');
+    loadFailed = false;
+    emitLoadingState('show');
+    if (contentView && !contentView.webContents.isDestroyed()) {
+      contentView.webContents.reload();
+    }
+  });
+
+  // offline 页 TopBar「重新连接」→ 通知主进程重试
+  ipcMain.on('online:retry', () => {
+    log.info('user triggered retry from offline view TopBar');
+    loadFailed = false;
+    emitLoadingState('show');
+    if (contentView && !contentView.webContents.isDestroyed()) {
+      contentView.webContents.reload();
+    }
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    offlineView = null;
+    contentView = null;
+    offlineReady = false;
+    loadFailed = false;
+  });
+
+  if (isDev) {
+    contentView.webContents.openDevTools({ mode: 'detach' });
+  }
+}
+
+// =============================================================================
+// 模式 B：legacy（v0.5.6 行为，useOfflineFallback=false）
+// 启动显示 splash → 加载 contentView
+// 成功 → 切到 contentView；失败 → retryView 重试 N 次 → errorView
+// =============================================================================
+function createMainWindowLegacy(config: LoadedConfig) {
+  const isDev = !app.isPackaged;
+  const TARGET_URL = config.targetUrl;
+  const MAX_RETRIES = config.maxRetries;
+  const RETRY_DELAY_MS = config.retryDelayMs;
+  log.info('view strategy: legacy (splash → retry → error)');
+
+  mainWindow = createBaseWindow(config);
+  loadingView = createView('splash.html');
+  retryView = createView('retry.html');
+  // errorView 需要展示 targetUrl 给用户（提示哪个服务连不上）
+  errorView = createView('error.html', { targetUrl: TARGET_URL });
+  contentView = createUrlView(TARGET_URL);
+
+  showOnly(loadingView);
+  mainWindow.show();
+
+  // contentView 事件：失败 → retryView 重试 N 次 → errorView
   contentView.webContents.on('did-finish-load', () => {
     if (loadFailed) {
       log.debug('content view did-finish-load but load was marked as failed, ignoring');
@@ -150,29 +279,17 @@ function createMainWindow(config: LoadedConfig) {
     log.info('content view did-finish-load, switching to contentView');
     showOnly(contentView);
   });
-
-  // URL 内容加载失败 → 离线模式直接切 offlineView；否则进入重试或错误页
   contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     loadFailed = true;
     log.error(`content view did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
-
-    if (useOffline && offlineView) {
-      // 离线模式：直接切到 offlineView，不重试
-      log.warn('falling back to offline page (no retry)');
-      showOnly(offlineView);
-      return;
-    }
-
-    // 原 retry/error 流程（useOfflineFallback=false）
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
       log.warn(`retry ${retryCount}/${MAX_RETRIES}`);
       retryView?.webContents.executeJavaScript(
-        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`
+        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`,
       );
       showOnly(retryView);
       setTimeout(() => {
-        // 重试前重置标志，让下次 did-finish-load（如果成功）能切换到 contentView
         loadFailed = false;
         if (contentView && !contentView.webContents.isDestroyed()) {
           contentView.webContents.reload();
@@ -183,28 +300,14 @@ function createMainWindow(config: LoadedConfig) {
       showOnly(errorView);
     }
   });
-
   contentView.webContents.on('render-process-gone', (_event, details) => {
-    log.error(`render-process-gone: ${JSON.stringify(details)}`);
-    // 修 Bug 2：renderer 崩溃不能让用户卡在空白页。
-    // offline 模式：直接切到 offlineView（不重试），与 did-fail-load 行为对称。
-    // 原模式：还有重试次数则走 retryView + setTimeout(reload)，耗尽则切 errorView。
+    log.error(`content view render-process-gone: ${JSON.stringify(details)}`);
     if (!contentView || contentView.webContents.isDestroyed()) return;
-
-    // 离线模式：renderer 崩溃直接切 offlineView，不重试（与 did-fail-load 一致）
-    // 否则会走到 showOnly(retryView=null) → 隐藏所有 View → 空白窗口
-    if (useOffline && offlineView) {
-      log.warn('render-process-gone in offline mode, falling back to offline page (no retry)');
-      showOnly(offlineView);
-      return;
-    }
-
-    // 原 retry/error 流程（useOfflineFallback=false）
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
       log.warn(`retry ${retryCount}/${MAX_RETRIES} (after render-process-gone)`);
       retryView?.webContents.executeJavaScript(
-        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`
+        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`,
       );
       showOnly(retryView);
       setTimeout(() => {
@@ -214,32 +317,15 @@ function createMainWindow(config: LoadedConfig) {
         }
       }, RETRY_DELAY_MS);
     } else {
-      if (useOffline && offlineView) {
-        log.warn('render-process-gone retry exhausted, falling back to offline page');
-        showOnly(offlineView);
-      } else {
-        log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
-        showOnly(errorView);
-      }
+      log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
+      showOnly(errorView);
     }
   });
 
-  contentView.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https:')) {
-      shell.openExternal(url);
-    }
-    return { action: 'deny' };
-  });
+  attachContentViewCommonHandlers(config.allowedOriginPrefix);
+  attachResizeHandler(mainWindow);
 
-  // 拦截非目标 origin 的导航
-  contentView.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(ALLOWED_ORIGIN_PREFIX)) {
-      event.preventDefault();
-      log.warn(`will-navigate blocked: ${url}`);
-    }
-  });
-
-  // 错误页点「重试」→ IPC 回主进程
+  // error 页「重试」按钮 → 完全重置
   ipcMain.on('retry:request', () => {
     log.info('user triggered retry from error view');
     retryCount = 0;
@@ -250,13 +336,9 @@ function createMainWindow(config: LoadedConfig) {
     }
   });
 
-  // resize 同步所有 View 的 bounds
-  mainWindow.on('resize', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    const [w, h] = mainWindow.getContentSize();
-    for (const v of [loadingView, retryView, errorView, offlineView, contentView]) {
-      v?.setBounds({ x: 0, y: 0, width: w, height: h });
-    }
+  // offline-first 模式专用 IPC：legacy 模式不应收到
+  ipcMain.on('online:retry', () => {
+    log.warn('online:retry received in legacy mode (should not happen)');
   });
 
   mainWindow.on('closed', () => {
@@ -264,12 +346,21 @@ function createMainWindow(config: LoadedConfig) {
     loadingView = null;
     retryView = null;
     errorView = null;
-    offlineView = null;
     contentView = null;
+    retryCount = 0;
+    loadFailed = false;
   });
 
   if (isDev) {
     contentView.webContents.openDevTools({ mode: 'detach' });
+  }
+}
+
+function createMainWindow(config: LoadedConfig) {
+  if (config.useOfflineFallback) {
+    createMainWindowOfflineFirst(config);
+  } else {
+    createMainWindowLegacy(config);
   }
 }
 

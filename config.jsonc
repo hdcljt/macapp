@@ -27,8 +27,9 @@
   // dismiss 后静默期（小时）。误点「以后再说」想立即再看 → 改 0 后重启。默认 24
   "dismissCooldownHours": 24,
 
-  // 是否使用离线兜底页面作为 contentView 加载失败的回退视图。
-  // true（默认）：失败直接切到离线页（v0.1.0 风格 UI），不重试
-  // false：使用原有 retry → error 流程（重试 N 次后显示错误页）
+  // 视图策略开关
+  // true（v0.5.7+ 默认）：offline-first。app 启动直接显示离线页（Vite 构建产物），URL 异步加载；
+  //                     成功切到 contentView；失败/崩溃 → 留在离线页，TopBar「重新连接」可点
+  // false（旧 v0.5.6 行为）：先显示 splash；URL 失败 → retryView 重试 N 次 → errorView（error 页「重试」按钮）
   "useOfflineFallback": true
 }

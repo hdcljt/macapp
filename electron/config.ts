@@ -11,6 +11,10 @@ export type UpdateChannel = 'stable' | 'beta';
 
 /**
  * 应用配置 schema（11 字段，全部必填）
+ *
+ * 视图策略由 `useOfflineFallback` 字段控制：
+ * - true（v0.5.7+ 默认）：offline-first，app 启动直接显示离线页，URL 异步加载
+ * - false：splash → retry → error 旧流程，contentView 失败时重试 N 次后切到错误页
  */
 export interface AppConfig {
   /** 目标 URL（Agent 用户助手入口），仅接受 http:// 与 https:// */
@@ -33,7 +37,11 @@ export interface AppConfig {
   updateChannel: UpdateChannel;
   /** dismiss 后静默期（小时）。0=立即重提示，>0=静默，默认 24 */
   dismissCooldownHours: number;
-  /** 是否使用离线兜底页面替代 retry/error 视图（默认 true） */
+  /**
+   * 视图策略开关
+   * - true（默认）：offline-first。app 启动直接显示离线页，URL 异步加载；失败/崩溃 → 留在离线页（TopBar「重新连接」可点）
+   * - false：旧流程。先显示 splash；URL 失败 → retryView 重试 N 次 → errorView（error 页「重试」按钮触发新一轮）
+   */
   useOfflineFallback: boolean;
 }
 
@@ -340,7 +348,7 @@ export async function loadConfig(): Promise<LoadedConfig> {
   log.info(`targetUrl: ${validated.targetUrl}`);
   log.info(`窗口: ${validated.width}x${validated.height} (min ${validated.minWidth}x${validated.minHeight})`);
   log.info(`重试: ${validated.maxRetries} 次, 间隔 ${validated.retryDelayMs}ms`);
-  log.info(`离线兜底: ${validated.useOfflineFallback ? '启用' : '禁用（使用 retry/error 模式）'}`);
+  log.info(`视图策略: ${validated.useOfflineFallback ? 'offline-first（默认显示离线页，URL 异步加载）' : 'splash → retry → error（旧流程）'}`);
 
   return { ...validated, allowedOriginPrefix };
 }

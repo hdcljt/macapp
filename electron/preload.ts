@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-// 暴露给 splash / retry / error / updater 页面的 API
+// 暴露给 splash / retry / error / updater / offline 页面的 API
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   versions: {
@@ -11,6 +11,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     app: (): Promise<string> => ipcRenderer.invoke('app:version'),
   },
   retry: () => ipcRenderer.send('retry:request'),
+  /**
+   * 订阅主进程推送的「URL 加载状态」。
+   * - 'show'：正在尝试连接在线服务（offline 页应显示加载 toast）
+   * - 'hide'：连接结束（成功 → 切到 contentView；失败 → 留在 offline 页）
+   */
+  onLoadingStateChange: (cb: (state: 'show' | 'hide') => void): void => {
+    ipcRenderer.on('online:loading', (_e, state: 'show' | 'hide') => cb(state));
+  },
+  /**
+   * 用户点击 offline 页 TopBar 的「重新连接」→ 通知主进程重试。
+   * 主进程会发 'show' → reload → 走原有成功/失败路径。
+   */
+  retryOnline: (): void => {
+    ipcRenderer.send('online:retry');
+  },
   log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => {
     ipcRenderer.invoke('log:write', level, message);
   },

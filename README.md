@@ -360,28 +360,50 @@ type %APPDATA%\算粒AI助手\logs\main.log | findstr updater
 
 ## 🛡️ 离线兜底页面
 
-当 `targetUrl`（线上 URL）加载失败时，应用会显示一个本地静态页面作为兜底，**不再进行重试**。兜底页面 UI 与 `http://localhost:5195/agent-user/assistant` 一致，提供熟悉的导航 + 功能介绍 + 输入栏体验。
+通过 `config.jsonc` 的 `useOfflineFallback` 字段选择两种策略：
 
-### 配置
+| 字段值 | 流程 | 适用场景 |
+|---|---|---|
+| `true`（v0.5.7+ **默认**） | **offline-first**：启动直接显示离线页 → 异步加载 URL；成功切到线上，失败/崩溃留在离线页 | 推荐。提供"始终有可用 UI"的最佳体验 |
+| `false` | **splash → retry → error**：先显示 splash → 失败重试 N 次 → errorView | 旧 v0.5.6 行为，保留供需要明确"加载失败弹错误页"流程的场景使用 |
 
-`config.jsonc`：
+### 策略 A：offline-first（`useOfflineFallback: true`）
 
-```jsonc
-{
-  "useOfflineFallback": true,  // 默认 true；设为 false 回到 v0.5.6 的 retry → error 流程
-  // ...
-}
-```
+app 一启动**立即**显示离线兜底页（Vite 产物，无网络依赖），同时**异步**尝试连接 `targetUrl`：
 
-### 行为对照
+- **成功** → 切到 contentView（线上页面）
+- **失败 / 渲染进程崩溃** → 继续停留在离线页，TopBar「重新连接」按钮始终可点
 
-| 场景 | `useOfflineFallback: true`（默认） | `useOfflineFallback: false` |
-|------|-----------------------------------|----------------------------|
-| 加载成功 | contentView 显示线上 URL | 同左 |
-| 加载失败 | **直接**切到离线兜底页（不重试） | retryView 重试 N 次 → errorView |
-| render-process-gone | 重试 N 次 → 离线兜底页 | 重试 N 次 → errorView |
+离线页 UI 与 `http://localhost:5195/agent-user/assistant` 一致，提供熟悉的导航 + 功能介绍 + 输入栏体验。
 
-### 独立调试
+#### 连接状态提示
+
+离线页 TopBar 右侧小 toast 实时反映主进程状态：
+
+- **spinner + 正在连接在线服务…**：主进程正在尝试连接 `targetUrl`
+- **🔄 重新连接**：连接结束（成功 → 已切到 contentView / 失败 → 留在本页，可点此按钮重试）
+
+### 策略 B：legacy（`useOfflineFallback: false`）
+
+旧 v0.5.6 行为：
+
+| 场景 | 行为 |
+|---|---|
+| 加载成功 | 切到 contentView |
+| 加载失败 | retryView 重试 N 次 → 失败切到 errorView |
+| render-process-gone | retryView 重试 N 次 → 失败切到 errorView |
+| 重连方式 | errorView「重试」按钮 |
+
+### 旧 splash / retry / error 静态页
+
+保留在 `electron/static/`，`build-electron.js` 仍会把它们复制到 `dist-electron/`：
+
+- 策略 A 不引用
+- 策略 B 仍引用
+
+如果未来需要彻底切到策略 A，可以从 `electron/static/` 删除 `splash.html` / `retry.html` / `error.html` 并同步 `build-electron.js` 的复制列表。
+
+### 独立调试（仅离线页）
 
 ```bash
 npm run dev:offline
@@ -389,6 +411,7 @@ npm run dev:offline
 ```
 
 仅启动 Vite dev server，不依赖 Electron 主进程，方便 UI 调试与样式调整。
+注意：dev 模式没有 `window.electronAPI`（preload 只在 Electron 中运行），TopBar 不会显示连接状态 toast，保持默认「重新连接」按钮可点击（仅 console 提示）。
 
 ## 🐛 常见问题
 
