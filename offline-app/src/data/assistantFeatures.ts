@@ -22,7 +22,6 @@ export interface FeatureCard {
   desc: string;
   icon: string;
   iconBg: string;
-  iconColor: string;
 }
 
 export interface FeatureSection {
@@ -40,10 +39,10 @@ export const featureSections: FeatureSection[] = [
     subtitle: 'AI 帮你高效创作',
     headerIcon: '✍️',
     cards: [
-      { title: '周报生成', desc: '一键生成工作周报', icon: '📊', iconBg: '#FEF3C7', iconColor: '#D97706' },
-      { title: '邮件撰写', desc: '专业得体的邮件', icon: '✉️', iconBg: '#DBEAFE', iconColor: '#2563EB' },
-      { title: '文案润色', desc: '让文字更有感染力', icon: '✨', iconBg: '#FCE7F3', iconColor: '#DB2777' },
-      { title: '翻译', desc: '多语言精准互译', icon: '🌐', iconBg: '#D1FAE5', iconColor: '#059669' },
+      { title: '周报生成', desc: '一键生成工作周报', icon: '📊', iconBg: '#FEF3C7' },
+      { title: '邮件撰写', desc: '专业得体的邮件', icon: '✉️', iconBg: '#DBEAFE' },
+      { title: '文案润色', desc: '让文字更有感染力', icon: '✨', iconBg: '#FCE7F3' },
+      { title: '翻译', desc: '多语言精准互译', icon: '🌐', iconBg: '#D1FAE5' },
     ],
   },
   {
@@ -52,10 +51,10 @@ export const featureSections: FeatureSection[] = [
     subtitle: 'AI 语音交互',
     headerIcon: '🎙️',
     cards: [
-      { title: '语音输入', desc: '按住说话，秒变文字', icon: '🎤', iconBg: '#FEE2E2', iconColor: '#DC2626' },
-      { title: '会议记录', desc: '自动整理会议要点', icon: '📝', iconBg: '#E0E7FF', iconColor: '#4F46E5' },
-      { title: '语音翻译', desc: '说中文，出英文', icon: '🗣️', iconBg: '#FEF3C7', iconColor: '#D97706' },
-      { title: '语音克隆', desc: '定制专属 AI 音色', icon: '🎭', iconBg: '#FCE7F3', iconColor: '#DB2777' },
+      { title: '语音输入', desc: '按住说话，秒变文字', icon: '🎤', iconBg: '#FEE2E2' },
+      { title: '会议记录', desc: '自动整理会议要点', icon: '📝', iconBg: '#E0E7FF' },
+      { title: '语音翻译', desc: '说中文，出英文', icon: '🗣️', iconBg: '#FEF3C7' },
+      { title: '语音克隆', desc: '定制专属 AI 音色', icon: '🎭', iconBg: '#FCE7F3' },
     ],
   },
   {
@@ -64,10 +63,10 @@ export const featureSections: FeatureSection[] = [
     subtitle: 'AI 知识管理',
     headerIcon: '📚',
     cards: [
-      { title: '笔记摘要', desc: '长文一键提炼要点', icon: '📋', iconBg: '#D1FAE5', iconColor: '#059669' },
-      { title: '问答库', desc: '个人专属知识库', icon: '💡', iconBg: '#FEF3C7', iconColor: '#D97706' },
-      { title: '文件搜索', desc: '自然语言找文件', icon: '🔍', iconBg: '#DBEAFE', iconColor: '#2563EB' },
-      { title: '日程规划', desc: 'AI 帮你安排一天', icon: '📅', iconBg: '#FCE7F3', iconColor: '#DB2777' },
+      { title: '笔记摘要', desc: '长文一键提炼要点', icon: '📋', iconBg: '#D1FAE5' },
+      { title: '问答库', desc: '个人专属知识库', icon: '💡', iconBg: '#FEF3C7' },
+      { title: '文件搜索', desc: '自然语言找文件', icon: '🔍', iconBg: '#DBEAFE' },
+      { title: '日程规划', desc: 'AI 帮你安排一天', icon: '📅', iconBg: '#FCE7F3' },
     ],
   },
 ];
