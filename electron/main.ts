@@ -187,9 +187,19 @@ function createMainWindow(config: LoadedConfig) {
   contentView.webContents.on('render-process-gone', (_event, details) => {
     log.error(`render-process-gone: ${JSON.stringify(details)}`);
     // 修 Bug 2：renderer 崩溃不能让用户卡在空白页。
-    // 复用现有 retry 流程：还有重试次数则走 retryView + setTimeout(reload)，
-    // 耗尽则直接显示 errorView（让用户主动重试或去 GitHub 反馈）。
+    // offline 模式：直接切到 offlineView（不重试），与 did-fail-load 行为对称。
+    // 原模式：还有重试次数则走 retryView + setTimeout(reload)，耗尽则切 errorView。
     if (!contentView || contentView.webContents.isDestroyed()) return;
+
+    // 离线模式：renderer 崩溃直接切 offlineView，不重试（与 did-fail-load 一致）
+    // 否则会走到 showOnly(retryView=null) → 隐藏所有 View → 空白窗口
+    if (useOffline && offlineView) {
+      log.warn('render-process-gone in offline mode, falling back to offline page (no retry)');
+      showOnly(offlineView);
+      return;
+    }
+
+    // 原 retry/error 流程（useOfflineFallback=false）
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
       log.warn(`retry ${retryCount}/${MAX_RETRIES} (after render-process-gone)`);
