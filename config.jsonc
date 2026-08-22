@@ -25,5 +25,10 @@
   "updateChannel": "stable",
 
   // dismiss 后静默期（小时）。误点「以后再说」想立即再看 → 改 0 后重启。默认 24
-  "dismissCooldownHours": 24
+  "dismissCooldownHours": 24,
+
+  // 是否使用离线兜底页面作为 contentView 加载失败的回退视图。
+  // true（默认）：失败直接切到离线页（v0.1.0 风格 UI），不重试
+  // false：使用原有 retry → error 流程（重试 N 次后显示错误页）
+  "useOfflineFallback": true
 }

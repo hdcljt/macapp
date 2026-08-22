@@ -33,6 +33,8 @@ export interface AppConfig {
   updateChannel: UpdateChannel;
   /** dismiss 后静默期（小时）。0=立即重提示，>0=静默，默认 24 */
   dismissCooldownHours: number;
+  /** 是否使用离线兜底页面替代 retry/error 视图（默认 true） */
+  useOfflineFallback: boolean;
 }
 
 /**
@@ -248,6 +250,13 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     errors.push(`dismissCooldownHours 必须是非负整数 (实际: ${JSON.stringify(o.dismissCooldownHours)})`);
   }
 
+  // useOfflineFallback
+  if (!('useOfflineFallback' in o)) {
+    errors.push('字段 useOfflineFallback 缺失');
+  } else if (typeof o.useOfflineFallback !== 'boolean') {
+    errors.push(`useOfflineFallback 必须是 boolean (实际: ${JSON.stringify(o.useOfflineFallback)})`);
+  }
+
   if (errors.length > 0) {
     throw new ConfigValidationError(errors.join('\n  - '), configPath);
   }
@@ -263,6 +272,7 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     autoUpdate: o.autoUpdate as boolean,
     updateChannel: o.updateChannel as UpdateChannel,
     dismissCooldownHours: o.dismissCooldownHours as number,
+    useOfflineFallback: o.useOfflineFallback as boolean,
   };
 }
 
@@ -330,6 +340,7 @@ export async function loadConfig(): Promise<LoadedConfig> {
   log.info(`targetUrl: ${validated.targetUrl}`);
   log.info(`窗口: ${validated.width}x${validated.height} (min ${validated.minWidth}x${validated.minHeight})`);
   log.info(`重试: ${validated.maxRetries} 次, 间隔 ${validated.retryDelayMs}ms`);
+  log.info(`离线兜底: ${validated.useOfflineFallback ? '启用' : '禁用（使用 retry/error 模式）'}`);
 
   return { ...validated, allowedOriginPrefix };
 }
