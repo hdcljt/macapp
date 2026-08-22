@@ -36,7 +36,7 @@ function handleClick(id: string) {
         @click="handleClick(tab.id)"
       >
         <span class="tab-icon">{{ tab.icon }}</span>
-        <span class="tab-label">{{ tab.label }}</span>
+        <span class="tab-label">{{ tab.name }}</span>
       </button>
     </div>
   </div>
