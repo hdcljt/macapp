@@ -13,7 +13,7 @@ export type UpdateChannel = 'stable' | 'beta';
  * 应用配置 schema（11 字段，全部必填）
  *
  * 视图策略由 `useOfflineFallback` 字段控制：
- * - true（v0.5.7+ 默认）：offline-first，app 启动直接显示离线页，URL 异步加载
+ * - true（v0.6.0+ 默认）：offline-first，app 启动直接显示离线页，URL 异步加载
  * - false：splash → retry → error 旧流程，contentView 失败时重试 N 次后切到错误页
  */
 export interface AppConfig {

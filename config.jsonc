@@ -28,7 +28,7 @@
   "dismissCooldownHours": 24,
 
   // 视图策略开关
-  // true（v0.5.7+ 默认）：offline-first。app 启动直接显示离线页（Vite 构建产物），URL 异步加载；
+  // true（v0.6.0+ 默认）：offline-first。app 启动直接显示离线页（Vite 构建产物），URL 异步加载；
   //                     成功切到 contentView；失败/崩溃 → 留在离线页，TopBar「重新连接」可点
   // false（旧 v0.5.6 行为）：先显示 splash；URL 失败 → retryView 重试 N 次 → errorView（error 页「重试」按钮）
   "useOfflineFallback": true

@@ -157,7 +157,7 @@ function attachResizeHandler(win: BrowserWindow) {
 }
 
 // =============================================================================
-// 模式 A：offline-first（v0.5.7+，useOfflineFallback=true 默认）
+// 模式 A：offline-first（v0.6.0+，useOfflineFallback=true 默认）
 // 启动立即显示 offlineView（本地 Vite 产物）→ 异步加载 contentView
 // 成功 → 切到 contentView；失败/崩溃 → 留在 offlineView，TopBar「重新连接」可点
 // =============================================================================

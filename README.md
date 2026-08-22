@@ -364,7 +364,7 @@ type %APPDATA%\算粒AI助手\logs\main.log | findstr updater
 
 | 字段值 | 流程 | 适用场景 |
 |---|---|---|
-| `true`（v0.5.7+ **默认**） | **offline-first**：启动直接显示离线页 → 异步加载 URL；成功切到线上，失败/崩溃留在离线页 | 推荐。提供"始终有可用 UI"的最佳体验 |
+| `true`（v0.6.0+ **默认**） | **offline-first**：启动直接显示离线页 → 异步加载 URL；成功切到线上，失败/崩溃留在离线页 | 推荐。提供"始终有可用 UI"的最佳体验 |
 | `false` | **splash → retry → error**：先显示 splash → 失败重试 N 次 → errorView | 旧 v0.5.6 行为，保留供需要明确"加载失败弹错误页"流程的场景使用 |
 
 ### 策略 A：offline-first（`useOfflineFallback: true`）
