@@ -14,6 +14,7 @@ let mainWindow: BrowserWindow | null = null;
 let loadingView: WebContentsView | null = null;
 let retryView: WebContentsView | null = null;
 let errorView: WebContentsView | null = null;
+let offlineView: WebContentsView | null = null; // 离线兜底页面（useOfflineFallback=true 时使用）
 let contentView: WebContentsView | null = null; // URL 内容也用 View 承载，避免默认 webContents 空白穿透
 let retryCount = 0;
 let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
@@ -25,6 +26,7 @@ function showOnly(view: WebContentsView | null) {
   loadingView?.setVisible(view === loadingView);
   retryView?.setVisible(view === retryView);
   errorView?.setVisible(view === errorView);
+  offlineView?.setVisible(view === offlineView);
   contentView?.setVisible(view === contentView);
 }
 
@@ -82,6 +84,9 @@ function createMainWindow(config: LoadedConfig) {
   const MAX_RETRIES = config.maxRetries;
   const RETRY_DELAY_MS = config.retryDelayMs;
   const ALLOWED_ORIGIN_PREFIX = config.allowedOriginPrefix;
+  const OFFLINE_PAGE = 'offline-app/index.html';
+  const useOffline = config.useOfflineFallback;
+  log.info(`view strategy: ${useOffline ? 'offline-fallback' : 'retry-then-error'}`);
 
   mainWindow = new BrowserWindow({
     width: config.width,
@@ -113,11 +118,19 @@ function createMainWindow(config: LoadedConfig) {
   // 关键修复：默认 webContents 不加载 URL，避免 URL 为空白/慢加载时穿透到背景
   // 改用一个 WebContentsView 承载 URL 内容
 
-  // 创建四个 View：loading / retry / error / content(URL)
+  // 创建 View：loading + (offlineView 或 retryView+errorView) + contentView
   loadingView = createView('splash.html');
-  retryView = createView('retry.html');
-  // errorView 需要展示 targetUrl 给用户（提示哪个服务连不上）
-  errorView = createView('error.html', { targetUrl: TARGET_URL });
+  if (useOffline) {
+    // 离线模式：只创建 loadingView + offlineView + contentView（retry/error 不创建）
+    offlineView = createView(OFFLINE_PAGE);
+    log.info('offlineView created (offline fallback mode)');
+  } else {
+    // 原 retry/error 模式
+    retryView = createView('retry.html');
+    // errorView 需要展示 targetUrl 给用户（提示哪个服务连不上）
+    errorView = createView('error.html', { targetUrl: TARGET_URL });
+    log.info('retryView + errorView created (legacy mode)');
+  }
   contentView = createUrlView(TARGET_URL); // URL 内容用自己的 View
 
   // 初始显示 loadingView
@@ -138,10 +151,19 @@ function createMainWindow(config: LoadedConfig) {
     showOnly(contentView);
   });
 
-  // URL 内容加载失败 → 进入重试或错误页
+  // URL 内容加载失败 → 离线模式直接切 offlineView；否则进入重试或错误页
   contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     loadFailed = true;
     log.error(`content view did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
+
+    if (useOffline && offlineView) {
+      // 离线模式：直接切到 offlineView，不重试
+      log.warn('falling back to offline page (no retry)');
+      showOnly(offlineView);
+      return;
+    }
+
+    // 原 retry/error 流程（useOfflineFallback=false）
     if (retryCount < MAX_RETRIES) {
       retryCount += 1;
       log.warn(`retry ${retryCount}/${MAX_RETRIES}`);
@@ -182,8 +204,13 @@ function createMainWindow(config: LoadedConfig) {
         }
       }, RETRY_DELAY_MS);
     } else {
-      log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
-      showOnly(errorView);
+      if (useOffline && offlineView) {
+        log.warn('render-process-gone retry exhausted, falling back to offline page');
+        showOnly(offlineView);
+      } else {
+        log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
+        showOnly(errorView);
+      }
     }
   });
 
@@ -217,7 +244,7 @@ function createMainWindow(config: LoadedConfig) {
   mainWindow.on('resize', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     const [w, h] = mainWindow.getContentSize();
-    for (const v of [loadingView, retryView, errorView, contentView]) {
+    for (const v of [loadingView, retryView, errorView, offlineView, contentView]) {
       v?.setBounds({ x: 0, y: 0, width: w, height: h });
     }
   });
@@ -227,6 +254,7 @@ function createMainWindow(config: LoadedConfig) {
     loadingView = null;
     retryView = null;
     errorView = null;
+    offlineView = null;
     contentView = null;
   });
 
