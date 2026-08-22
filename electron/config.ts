@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse, ParseError } from 'jsonc-parser';
+import { parse, modify, applyEdits, ParseError } from 'jsonc-parser';
 import { logger } from './logger';
 
 const log = logger.child('config');
@@ -286,7 +286,13 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
 
 /**
  * 加载并校验 config.jsonc
- * 失败时 console.error + process.exit(1)
+ * 失败时 log.error（写 main.log + console）+ process.exit(1)
+ *
+ * 向后兼容：用户 config 缺字段时，从 bundled default 补齐并写回 userData
+ * - 场景：v0.5.6 → v0.6.0 升级时，旧 config 缺 useOfflineFallback 等新字段
+ * - 不覆盖用户的现有字段值（保留 targetUrl 等自定义）
+ * - 用 jsonc-parser.modify() 写回，保留用户原有注释和缩进格式
+ * - 写回失败时降级为内存合并，下次启动重新尝试
  */
 export async function loadConfig(): Promise<LoadedConfig> {
   let configPath: string;
@@ -294,12 +300,12 @@ export async function loadConfig(): Promise<LoadedConfig> {
     configPath = await resolveConfigPath();
   } catch (err) {
     if (err instanceof ConfigNotFoundError) {
-      console.error('[config] ✗ 未找到 config.jsonc');
-      console.error('[config]   已尝试:');
+      log.error('✗ 未找到 config.jsonc');
+      log.error('  已尝试:');
       for (const p of err.triedPaths) {
-        console.error(`[config]     - ${p}`);
+        log.error(`    - ${p}`);
       }
-      console.error('[config]   提示: 从仓库根或安装包复制 config.jsonc 到上述任一路径');
+      log.error('  提示: 从仓库根或安装包复制 config.jsonc 到上述任一路径');
       process.exit(1);
     }
     throw err;
@@ -309,8 +315,8 @@ export async function loadConfig(): Promise<LoadedConfig> {
   try {
     text = fs.readFileSync(configPath, 'utf-8');
   } catch (err) {
-    console.error(`[config] ✗ 读取失败: ${configPath}`);
-    console.error(`[config]   ${(err as Error).message}`);
+    log.error(`✗ 读取失败: ${configPath}`);
+    log.error(`  ${(err as Error).message}`);
     process.exit(1);
   }
 
@@ -318,18 +324,89 @@ export async function loadConfig(): Promise<LoadedConfig> {
   const data = parse(text, parseErrors, { allowTrailingComma: true });
   if (parseErrors.length > 0) {
     const e = parseErrors[0];
-    console.error(`[config] ✗ JSONC 解析失败: ${configPath}`);
-    console.error(`[config]   第 ${e.offset + 1} 字符附近: ${e.error}`);
+    log.error(`✗ JSONC 解析失败: ${configPath}`);
+    log.error(`  第 ${e.offset + 1} 字符附近: ${e.error}`);
     process.exit(1);
+  }
+
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    log.error(`✗ config.jsonc 必须是 JSON 对象: ${configPath}`);
+    process.exit(1);
+  }
+
+  // =============================================================================
+  // 向后兼容迁移：缺字段时从 bundled default 补齐并写回 userData
+  // 仅生产模式触发（dev 模式仓库根 config.jsonc 永远是最新源）
+  // =============================================================================
+  const userObj = data as Record<string, unknown>;
+  const bundledConfigPath = getBundledConfigPath();
+  if (app.isPackaged && configPath !== bundledConfigPath) {
+    try {
+      const bundledText = fs.readFileSync(bundledConfigPath, 'utf-8');
+      const bundledParseErrors: ParseError[] = [];
+      const bundledData = parse(bundledText, bundledParseErrors, { allowTrailingComma: true });
+      if (
+        bundledParseErrors.length === 0 &&
+        typeof bundledData === 'object' &&
+        bundledData !== null &&
+        !Array.isArray(bundledData)
+      ) {
+        const bundledObj = bundledData as Record<string, unknown>;
+        const missing = Object.keys(bundledObj).filter((k) => !(k in userObj));
+        if (missing.length > 0) {
+          log.warn(`⚠ 用户配置缺失字段: ${missing.join(', ')}`);
+          log.warn(`  从 bundled default 补齐并写回: ${configPath}`);
+          log.warn(`  提示: 写回后用户原有注释/缩进保留，可编辑文件改默认值`);
+
+          // 用 modify() 增量插入新字段（modify 返回 ApplyEdits[]，需 applyEdits 应用）
+          let mergedText = text;
+          let modifyFailed = false;
+          for (const field of missing) {
+            const edits = modify(mergedText, [field], bundledObj[field], {
+              formattingOptions: { tabSize: 2, insertSpaces: true },
+            });
+            if (edits === undefined) {
+              log.error(`  ✗ modify() 写入字段 ${field} 失败，仅内存兜底`);
+              modifyFailed = true;
+              userObj[field] = bundledObj[field]; // 内存兜底
+            } else {
+              const applied = applyEdits(mergedText, edits);
+              if (applied === undefined) {
+                log.error(`  ✗ applyEdits() 写入字段 ${field} 失败，仅内存兜底`);
+                modifyFailed = true;
+                userObj[field] = bundledObj[field];
+              } else {
+                mergedText = applied;
+                userObj[field] = bundledObj[field];
+              }
+            }
+          }
+
+          if (!modifyFailed) {
+            try {
+              fs.writeFileSync(configPath, mergedText, 'utf-8');
+              log.info(`✓ 已写回迁移后的配置: ${configPath}`);
+            } catch (writeErr) {
+              log.error(
+                `✗ 写回失败: ${(writeErr as Error).message}（仅内存使用，下次启动需重新迁移）`,
+              );
+            }
+          }
+        }
+      }
+    } catch (readErr) {
+      log.warn(`⚠ bundled config 不可读，跳过迁移兜底: ${(readErr as Error).message}`);
+    }
   }
 
   let validated: AppConfig;
   try {
-    validated = validateConfig(data, configPath);
+    validated = validateConfig(userObj, configPath);
   } catch (err) {
     if (err instanceof ConfigValidationError) {
-      console.error(`[config] ✗ 字段校验失败: ${configPath}`);
-      console.error(`[config]   - ${err.message}`);
+      log.error(`✗ 字段校验失败: ${configPath}`);
+      log.error(`  - ${err.message}`);
+      log.error(`  提示: 编辑 config.jsonc 修正后重启，或删除该文件从 bundled 重新生成`);
       process.exit(1);
     }
     throw err;
@@ -340,7 +417,7 @@ export async function loadConfig(): Promise<LoadedConfig> {
   try {
     allowedOriginPrefix = new URL(validated.targetUrl).origin + '/';
   } catch {
-    console.error(`[config] ✗ targetUrl 无法解析为 URL: ${validated.targetUrl}`);
+    log.error(`✗ targetUrl 无法解析为 URL: ${validated.targetUrl}`);
     process.exit(1);
   }
 
