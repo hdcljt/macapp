@@ -1,0 +1,46 @@
+@use './variables.scss' as *;
+
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: $color-text-primary;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+* {
+  -webkit-app-region: no-drag;
+}
+
+// 渐变背景
+.app-bg {
+  background: linear-gradient(
+    160deg,
+    $color-bg-gradient-start 0%,
+    $color-bg-gradient-mid 45%,
+    $color-bg-gradient-end 100%
+  );
+}
+
+// 玻璃卡片
+.glass-card {
+  background: $color-card-bg;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid $color-card-border;
+  box-shadow: $shadow-card;
+}
