@@ -358,6 +358,38 @@ type %APPDATA%\算粒AI助手\logs\main.log | findstr updater
 { "autoUpdate": false }
 ```
 
+## 🛡️ 离线兜底页面
+
+当 `targetUrl`（线上 URL）加载失败时，应用会显示一个本地静态页面作为兜底，**不再进行重试**。兜底页面 UI 与 `http://localhost:5195/agent-user/assistant` 一致，提供熟悉的导航 + 功能介绍 + 输入栏体验。
+
+### 配置
+
+`config.jsonc`：
+
+```jsonc
+{
+  "useOfflineFallback": true,  // 默认 true；设为 false 回到 v0.5.6 的 retry → error 流程
+  // ...
+}
+```
+
+### 行为对照
+
+| 场景 | `useOfflineFallback: true`（默认） | `useOfflineFallback: false` |
+|------|-----------------------------------|----------------------------|
+| 加载成功 | contentView 显示线上 URL | 同左 |
+| 加载失败 | **直接**切到离线兜底页（不重试） | retryView 重试 N 次 → errorView |
+| render-process-gone | 重试 N 次 → 离线兜底页 | 重试 N 次 → errorView |
+
+### 独立调试
+
+```bash
+npm run dev:offline
+# 浏览器打开 http://localhost:5195/
+```
+
+仅启动 Vite dev server，不依赖 Electron 主进程，方便 UI 调试与样式调整。
+
 ## 🐛 常见问题
 
 ### Q1: Windows 上打包 EPERM 错误？
