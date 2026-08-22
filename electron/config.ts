@@ -10,7 +10,7 @@ const log = logger.child('config');
 export type UpdateChannel = 'stable' | 'beta';
 
 /**
- * 应用配置 schema（7 字段，全部必填）
+ * 应用配置 schema（11 字段，全部必填）
  */
 export interface AppConfig {
   /** 目标 URL（Agent 用户助手入口），仅接受 http:// 与 https:// */
@@ -158,7 +158,7 @@ export async function resolveConfigPath(): Promise<string> {
 }
 
 /**
- * 校验配置对象的 7 个字段（缺失 / 类型 / 范围）
+ * 校验配置对象的 11 个字段（缺失 / 类型 / 范围）
  */
 function validateConfig(obj: unknown, configPath: string): AppConfig {
   if (typeof obj !== 'object' || obj === null) {
