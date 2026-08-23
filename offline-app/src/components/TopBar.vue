@@ -3,6 +3,7 @@
  * TopBar — 离线页顶部菜单 + 在线连接状态 + 新建对话
  *
  * 连接状态来自 ui store（主进程 IPC 推过来）：
+ * - hasReceivedFirstEvent=false（启动瞬间）：skeleton 占位，避免「重新连接」按钮误显
  * - isConnectingToOnline=true → 显示「正在连接…」spinner toast
  * - isConnectingToOnline=false 且不在 contentView → 显示「重新连接」按钮（点击触发 retryOnline）
  *
@@ -20,7 +21,7 @@ defineEmits<{
 }>()
 
 const uiStore = useUiStore()
-const { isConnectingToOnline } = storeToRefs(uiStore)
+const { isConnectingToOnline, hasReceivedFirstEvent } = storeToRefs(uiStore)
 </script>
 
 <template>
@@ -43,12 +44,20 @@ const { isConnectingToOnline } = storeToRefs(uiStore)
     <div class="actions">
       <!--
         连接状态提示：
+        - 启动瞬间（首次 IPC 未到达）：skeleton 占位
         - 正在连接：spinner + 文字，自动出现/消失
         - 连接失败（用户停留在 offline 页且不再连接中）：显示「重新连接」按钮
       -->
       <Transition name="toast">
         <div
-          v-if="isConnectingToOnline"
+          v-if="!hasReceivedFirstEvent"
+          key="skeleton"
+          class="toast toast--skeleton"
+          aria-hidden="true"
+        />
+        <div
+          v-else-if="isConnectingToOnline"
+          key="connecting"
           class="toast toast--connecting"
           role="status"
           aria-live="polite"
@@ -58,6 +67,7 @@ const { isConnectingToOnline } = storeToRefs(uiStore)
         </div>
         <button
           v-else
+          key="retry"
           type="button"
           class="toast toast--retry"
           aria-label="重新连接在线服务"
@@ -141,6 +151,15 @@ const { isConnectingToOnline } = storeToRefs(uiStore)
   user-select: none;
   transition: background-color 200ms, color 200ms, box-shadow 200ms;
 
+  &--skeleton {
+    /* 启动瞬间占位：80x32 灰色块，与 toast 同高保持布局稳定 */
+    width: 80px;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.06);
+    pointer-events: none;
+    animation: skeleton-pulse 1.2s ease-in-out infinite;
+  }
+
   &--connecting {
     background: rgba(96, 165, 250, 0.12); /* 浅蓝底 */
     color: $color-accent;
@@ -177,6 +196,11 @@ const { isConnectingToOnline } = storeToRefs(uiStore)
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.3; }
 }
 
 /* ---- 进入/离开过渡 ---- */

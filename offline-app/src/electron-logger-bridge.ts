@@ -44,9 +44,21 @@ export function formatArgs(args: unknown[]): string {
  * 把原 console 的 5 个方法替换成「先调原 console + 异步转发 IPC」的版本
  * - api：window.electronAPI（必须有 log 方法，否则函数体直接 return）
  *
+ * 幂等保护：使用 Symbol.for() 在 console 上挂标记，重复调用直接跳过。
+ * 必要性：Vite HMR 重新执行 IIFE 时如果不加保护，第 2 次会捕获到已被包装的
+ * console 作为「原 console」，导致每次调用走 N 层 wrapper，forward() 被调用 N 次，
+ * 日志文件重复 N 倍，主进程 logger 吞吐量翻倍。
+ *
  * 导出供测试和未来调用方
  */
 export function wrapConsole(api: { log(level: string, message: string): Promise<unknown> }): void {
+  const WRAPPED_FLAG = Symbol.for('electron-logger-bridge.wrapped');
+  if ((console as unknown as Record<symbol, boolean>)[WRAPPED_FLAG]) {
+    // 已包装过（通常是 Vite HMR 重新执行 IIFE），跳过避免嵌套
+    return;
+  }
+  (console as unknown as Record<symbol, boolean>)[WRAPPED_FLAG] = true;
+
   const originalDebug = console.debug.bind(console);
   const originalInfo = console.info.bind(console);
   const originalLog = console.log.bind(console);

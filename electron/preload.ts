@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// online:loading 的回调集合（用于 onLoadingStateChange 返回 unsubscribe，
+// 让 Pinia store 在 Vite HMR 重新 setup 时清理旧 listener，避免累积）
+const loadingListeners = new Set<(state: 'show' | 'hide') => void>();
+ipcRenderer.on('online:loading', (_e, state: 'show' | 'hide') => {
+  for (const cb of loadingListeners) cb(state);
+});
+
 // 暴露给 splash / retry / error / updater / offline 页面的 API
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
@@ -15,9 +22,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * 订阅主进程推送的「URL 加载状态」。
    * - 'show'：正在尝试连接在线服务（offline 页应显示加载 toast）
    * - 'hide'：连接结束（成功 → 切到 contentView；失败 → 留在 offline 页）
+   *
+   * 返回 unsubscribe 函数：调用后停止接收该回调。
+   * 用途：Vite HMR 重新 setup Pinia store 时清理旧 listener，避免累积。
    */
-  onLoadingStateChange: (cb: (state: 'show' | 'hide') => void): void => {
-    ipcRenderer.on('online:loading', (_e, state: 'show' | 'hide') => cb(state));
+  onLoadingStateChange: (cb: (state: 'show' | 'hide') => void): (() => void) => {
+    loadingListeners.add(cb);
+    return () => loadingListeners.delete(cb);
   },
   /**
    * 用户点击 offline 页 TopBar 的「重新连接」→ 通知主进程重试。

@@ -215,25 +215,8 @@ function createMainWindowOfflineFirst(config: LoadedConfig) {
   attachContentViewCommonHandlers(config.allowedOriginPrefix);
   attachResizeHandler(mainWindow);
 
-  // error.html 「重试」按钮（兜底，理论上 offline-first 模式不会切到 errorView）
-  ipcMain.on('retry:request', () => {
-    log.info('user triggered retry from error view (legacy)');
-    loadFailed = false;
-    emitLoadingState('show');
-    if (contentView && !contentView.webContents.isDestroyed()) {
-      contentView.webContents.reload();
-    }
-  });
-
-  // offline 页 TopBar「重新连接」→ 通知主进程重试
-  ipcMain.on('online:retry', () => {
-    log.info('user triggered retry from offline view TopBar');
-    loadFailed = false;
-    emitLoadingState('show');
-    if (contentView && !contentView.webContents.isDestroyed()) {
-      contentView.webContents.reload();
-    }
-  });
+  // IPC handlers (retry:request / online:retry) are registered once at app startup
+  // by registerIpcHandlers(), not here — see Bug 4 fix in code-review.
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -244,6 +227,10 @@ function createMainWindowOfflineFirst(config: LoadedConfig) {
   });
 
   if (isDev) {
+    // 故意挂到 contentView 而非 offlineView：
+    // - detach 模式下 DevTools 窗口独立显示，用户切换 view 时需要 DevTools 跟随正在看的页面
+    // - online 页才是开发调试的主要目标（offlineView 是本地 Vite 产物，出问题直接看 DevTools 也行）
+    // - 同一 process 反复创建 WebContentsView 时，先挂的 DevTools 会随 view 销毁 → 挂到 contentView 保证生存期最长
     contentView.webContents.openDevTools({ mode: 'detach' });
   }
 }
@@ -270,6 +257,30 @@ function createMainWindowLegacy(config: LoadedConfig) {
   showOnly(loadingView);
   mainWindow.show();
 
+  /**
+   * legacy 模式重试逻辑（合并自 did-fail-load / render-process-gone 两个 handler）。
+   * @param reason 失败原因（用于日志区分）
+   */
+  function attemptLegacyRetry(reason: string) {
+    if (retryCount >= MAX_RETRIES) {
+      log.error(`gave up after ${MAX_RETRIES} retries (${reason}), switching to error view`);
+      showOnly(errorView);
+      return;
+    }
+    retryCount += 1;
+    log.warn(`retry ${retryCount}/${MAX_RETRIES} (${reason})`);
+    retryView?.webContents.executeJavaScript(
+      `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`,
+    );
+    showOnly(retryView);
+    setTimeout(() => {
+      loadFailed = false;
+      if (contentView && !contentView.webContents.isDestroyed()) {
+        contentView.webContents.reload();
+      }
+    }, RETRY_DELAY_MS);
+  }
+
   // contentView 事件：失败 → retryView 重试 N 次 → errorView
   contentView.webContents.on('did-finish-load', () => {
     if (loadFailed) {
@@ -282,64 +293,19 @@ function createMainWindowLegacy(config: LoadedConfig) {
   contentView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     loadFailed = true;
     log.error(`content view did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
-    if (retryCount < MAX_RETRIES) {
-      retryCount += 1;
-      log.warn(`retry ${retryCount}/${MAX_RETRIES}`);
-      retryView?.webContents.executeJavaScript(
-        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`,
-      );
-      showOnly(retryView);
-      setTimeout(() => {
-        loadFailed = false;
-        if (contentView && !contentView.webContents.isDestroyed()) {
-          contentView.webContents.reload();
-        }
-      }, RETRY_DELAY_MS);
-    } else {
-      log.error(`gave up after ${MAX_RETRIES} retries, switching to error view`);
-      showOnly(errorView);
-    }
+    attemptLegacyRetry('did-fail-load');
   });
   contentView.webContents.on('render-process-gone', (_event, details) => {
     log.error(`content view render-process-gone: ${JSON.stringify(details)}`);
     if (!contentView || contentView.webContents.isDestroyed()) return;
-    if (retryCount < MAX_RETRIES) {
-      retryCount += 1;
-      log.warn(`retry ${retryCount}/${MAX_RETRIES} (after render-process-gone)`);
-      retryView?.webContents.executeJavaScript(
-        `document.querySelector('.label').textContent = '正在重试 ${retryCount}/${MAX_RETRIES}…';`,
-      );
-      showOnly(retryView);
-      setTimeout(() => {
-        loadFailed = false;
-        if (contentView && !contentView.webContents.isDestroyed()) {
-          contentView.webContents.reload();
-        }
-      }, RETRY_DELAY_MS);
-    } else {
-      log.error(`gave up after ${MAX_RETRIES} retries (after render-process-gone), switching to error view`);
-      showOnly(errorView);
-    }
+    attemptLegacyRetry('render-process-gone');
   });
 
   attachContentViewCommonHandlers(config.allowedOriginPrefix);
   attachResizeHandler(mainWindow);
 
-  // error 页「重试」按钮 → 完全重置
-  ipcMain.on('retry:request', () => {
-    log.info('user triggered retry from error view');
-    retryCount = 0;
-    loadFailed = false;
-    showOnly(loadingView);
-    if (contentView && !contentView.webContents.isDestroyed()) {
-      contentView.webContents.reload();
-    }
-  });
-
-  // offline-first 模式专用 IPC：legacy 模式不应收到
-  ipcMain.on('online:retry', () => {
-    log.warn('online:retry received in legacy mode (should not happen)');
-  });
+  // IPC handlers (retry:request / online:retry) are registered once at app startup
+  // by registerIpcHandlers(), not here — see Bug 4 fix in code-review.
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -364,6 +330,42 @@ function createMainWindow(config: LoadedConfig) {
   }
 }
 
+/**
+ * 注册 IPC handlers（启动时一次性注册，避免 macOS activate 后多次 createMainWindow
+ * 导致 handler 累积泄漏）。
+ *
+ * 模式条件注册：
+ * - legacy：仅注册 `retry:request`（error.html 重试按钮触发），不注册 `online:retry`
+ * - offline-first：仅注册 `online:retry`（offlineView TopBar 重连触发），不注册 `retry:request`
+ *
+ * 原因（Q3 + Q4）：offline-first 不创建 errorView，legacy 不创建 offlineView，
+ * 对应 handler 在对方模式下永远不会触发，注册纯浪费。
+ */
+function registerIpcHandlers(mode: 'offline-first' | 'legacy') {
+  if (mode === 'legacy') {
+    // error.html 「重试」按钮 → 完全重置 retryCount
+    ipcMain.on('retry:request', () => {
+      log.info('user triggered retry from error view');
+      retryCount = 0;
+      loadFailed = false;
+      showOnly(loadingView);
+      if (contentView && !contentView.webContents.isDestroyed()) {
+        contentView.webContents.reload();
+      }
+    });
+  } else {
+    // offlineView TopBar「重新连接」→ 推 loading:show 给 spinner
+    ipcMain.on('online:retry', () => {
+      log.info('user triggered retry from offline view TopBar');
+      loadFailed = false;
+      emitLoadingState('show');
+      if (contentView && !contentView.webContents.isDestroyed()) {
+        contentView.webContents.reload();
+      }
+    });
+  }
+}
+
 // loadConfig() 是 async（内部调 app.getPath('userData')），esbuild CJS 拒绝顶层 await，故在 whenReady 内 await
 app.whenReady().then(async () => {
   initLogger();
@@ -371,6 +373,7 @@ app.whenReady().then(async () => {
   registerLogHandlers();
   const config = await loadConfig();
   log.info(`config loaded: ${config.width}x${config.height}`);
+  registerIpcHandlers(config.useOfflineFallback ? 'offline-first' : 'legacy');
   createMainWindow(config);
   log.info(`createMainWindow end: ${config.width}x${config.height}`);
 

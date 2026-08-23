@@ -86,20 +86,6 @@ export class ConfigNotFoundError extends ConfigError {
 }
 
 /**
- * 解析平台特定的 exe-dir 配置路径
- * macOS: <exec>/../Resources/config.jsonc（mac.extraResources 落地位置）
- *   注意：必须放在 Contents/Resources/，否则 codesign 拒绝签名 Contents/ 根目录的非代码文件
- * 其他:  <exec-dir>/config.jsonc（win.extraFiles 落地位置）
- */
-function getExecDirConfigPath(): string {
-  const execDir = path.dirname(process.execPath);
-  if (process.platform === 'darwin') {
-    return path.join(execDir, '..', 'Resources', 'config.jsonc');
-  }
-  return path.join(execDir, 'config.jsonc');
-}
-
-/**
  * 解析平台特定的 bundled default 路径
  * macOS:   <exec>/../Resources/config.jsonc（extraResources 落地位置，codesign 兼容）
  * Windows: <exec-dir>/resources/config.jsonc（extraResources 落地位置）

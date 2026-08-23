@@ -19,6 +19,14 @@ export const useUiStore = defineStore('ui', () => {
    * dev 模式（npm run dev:offline）下无主进程，默认 false。
    */
   const isConnectingToOnline = ref(false);
+  /**
+   * 是否收到过主进程的首次推送。
+   * - false（启动瞬间）：TopBar 显示 skeleton 占位，避免「重新连接」按钮误显
+   * - true：按 isConnectingToOnline 切换 connecting / retry 状态
+   *
+   * 不重置：app 生命周期内只有首次启动需要这个 flag，重启后会重新为 false。
+   */
+  const hasReceivedFirstEvent = ref(false);
 
   function openDrawer() {
     drawerOpen.value = true;
@@ -52,11 +60,19 @@ export const useUiStore = defineStore('ui', () => {
    * 必须在 setup 顶层调用（Pinia store 创建时执行一次）。
    *
    * dev 模式下无 electronAPI，跳过订阅，isConnectingToOnline 保持 false。
+   *
+   * HMR 处理：返回的 unsubscribe 在 import.meta.hot.dispose() 时调用，
+   * 避免 Vite HMR 重新 setup 时 listener 累积。
    */
   if (window.electronAPI) {
-    window.electronAPI.onLoadingStateChange((state) => {
+    const unsubscribe = window.electronAPI.onLoadingStateChange((state) => {
       isConnectingToOnline.value = state === 'show';
+      hasReceivedFirstEvent.value = true;
     });
+    // HMR 清理：旧 store 销毁时清掉 listener
+    if (import.meta.hot) {
+      import.meta.hot.dispose(() => unsubscribe());
+    }
   }
 
   return {
@@ -64,6 +80,7 @@ export const useUiStore = defineStore('ui', () => {
     activeTabId,
     activeAppId,
     isConnectingToOnline,
+    hasReceivedFirstEvent,
     openDrawer,
     closeDrawer,
     setActiveTab,

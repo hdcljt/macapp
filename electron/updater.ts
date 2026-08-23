@@ -1,5 +1,6 @@
 import { autoUpdater, UpdateInfo, ProgressInfo } from 'electron-updater';
 import { BrowserWindow, ipcMain, app } from 'electron';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { logger } from './logger';
@@ -16,13 +17,43 @@ export interface UpdateConfig {
 
 // 模块级状态
 let updateWindow: BrowserWindow | null = null;
-let dismissedVersion: string | null = null;
-let lastDismissedAt: number = 0;
+let lastDismissedAt: number = loadDismissTimestamp(); // 启动时从 .txt 文件加载（跨重启生效）
 let dismissCooldownMs: number = 24 * 60 * 60 * 1000; // 默认 24h，由 config 覆盖
 // 修 Bug 1：autoUpdateEnabled 让 checkForUpdates() 知道当前是否初始化过 feed URL。
 // 之前 autoUpdate:false 时 initUpdater 直接 return，跳过 setFeedURL，
 // 但 main.ts 仍调 checkForUpdates()，autoUpdater 会抛「Feed URL is not provided」被 .catch 吞掉。
 let autoUpdateEnabled = false;
+
+/**
+ * dismiss 状态持久化文件路径
+ * macOS:   ~/Library/Application Support/算粒AI助手/updater-dismiss.txt
+ * Windows: %APPDATA%\算粒AI助手\updater-dismiss.txt
+ *
+ * 文件内容：Unix 毫秒时间戳（一行数字），由 saveDismissTimestamp() 写入。
+ * loadDismissTimestamp() 启动时读取，损坏/缺失/不在 cooldown 内时返回 0（视为从未 dismiss）。
+ */
+function getDismissStatePath(): string {
+  return path.join(app.getPath('userData'), 'updater-dismiss.txt');
+}
+
+function loadDismissTimestamp(): number {
+  try {
+    const text = fs.readFileSync(getDismissStatePath(), 'utf-8');
+    const ts = parseInt(text.trim(), 10);
+    return Number.isFinite(ts) && ts > 0 ? ts : 0;
+  } catch {
+    // 文件不存在或读取失败 → 当作从未 dismiss
+    return 0;
+  }
+}
+
+function saveDismissTimestamp(timestamp: number): void {
+  try {
+    fs.writeFileSync(getDismissStatePath(), String(timestamp), 'utf-8');
+  } catch (err) {
+    log.warn(`保存 dismiss 时间戳失败: ${(err as Error).message}`);
+  }
+}
 
 /**
  * 初始化：配置 feed URL + 注册事件 + 注册 IPC。
@@ -110,9 +141,9 @@ export function initUpdater(config: UpdateConfig): void {
   });
 
   ipcMain.handle('updater:dismiss', (_e, version: string) => {
-    dismissedVersion = version;
     lastDismissedAt = Date.now();
-    log.info(`user dismissed update ${version}`);
+    saveDismissTimestamp(lastDismissedAt);
+    log.info(`user dismissed update ${version}（cooldown ${dismissCooldownMs / 1000}s）`);
     closeUpdateWindow();
   });
 }
@@ -126,8 +157,8 @@ export function checkForUpdates(): void {
     log.debug('checkForUpdates skipped: autoUpdate disabled');
     return;
   }
-  if (dismissedVersion && Date.now() - lastDismissedAt < dismissCooldownMs) {
-    log.info(`skipped check, dismissed version ${dismissedVersion} still in cooldown`);
+  if (lastDismissedAt > 0 && Date.now() - lastDismissedAt < dismissCooldownMs) {
+    log.info(`skipped check, dismissed ${Math.round((Date.now() - lastDismissedAt) / 1000)}s ago, cooldown=${dismissCooldownMs / 1000}s`);
     return;
   }
   autoUpdater
