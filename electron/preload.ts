@@ -37,9 +37,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   retryOnline: (): void => {
     ipcRenderer.send('online:retry');
   },
-  log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => {
-    ipcRenderer.invoke('log:write', level, message);
-  },
+  log: (level: 'debug' | 'info' | 'warn' | 'error', message: string): Promise<unknown> =>
+    ipcRenderer.invoke('log:write', level, message),
   updater: {
     /** 触发下载（用户点击「立即更新」后调用） */
     download: (): Promise<void> => ipcRenderer.invoke('updater:download'),
