@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -9,6 +9,7 @@ import { loadConfig } from './config';
 import type { LoadedConfig } from './config';
 import { logger, initLogger, registerLogHandlers, closeLogger } from './logger';
 import { initUpdater, checkForUpdates } from './updater';
+import { CodingAgent, type CodingStatus } from './codingAgent';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -19,10 +20,12 @@ let retryView: WebContentsView | null = null;
 let errorView: WebContentsView | null = null;
 let offlineView: WebContentsView | null = null; // offline-first 模式专用
 let contentView: WebContentsView | null = null;
+let codingView: WebContentsView | null = null; // v1.2 新增：内嵌编码工具 web UI
 
 let retryCount = 0;
 let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
 let offlineReady = false; // offline-first 模式：offlineView 的 renderer 是否已就绪（IPC 可用）
+let codingAgent: CodingAgent | null = null; // v1.2 新增：编码工具进程管理器
 
 const log = logger.child('main');
 
@@ -33,11 +36,12 @@ function showOnly(view: WebContentsView | null) {
   errorView?.setVisible(view === errorView);
   offlineView?.setVisible(view === offlineView);
   contentView?.setVisible(view === contentView);
+  codingView?.setVisible(view === codingView);
 }
 
 /** 收集当前所有可见的 View 集合，用于 resize 同步 bounds */
 function allViews(): WebContentsView[] {
-  return [loadingView, retryView, errorView, offlineView, contentView].filter(
+  return [loadingView, retryView, errorView, offlineView, contentView, codingView].filter(
     (v): v is WebContentsView => v !== null,
   );
 }
@@ -101,6 +105,49 @@ function createUrlView(url: string): WebContentsView {
   mainWindow!.contentView.addChildView(view);
   view.setVisible(false);
   return view;
+}
+
+/**
+ * codingView：加载内嵌编码工具的 web UI（v1.2 新增）
+ * 独立 will-navigate 白名单 `http://127.0.0.1:<urlPort>/`，与 contentView 的
+ * allowedOriginPrefix 无关（内嵌工具跑在 localhost 随机端口上）。
+ */
+function createCodingView(url: string): WebContentsView {
+  const urlPort = new URL(url).port;
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  const [w, h] = mainWindow!.getContentSize();
+  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  view.webContents.loadURL(url);
+
+  view.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    if (openUrl.startsWith('https:')) shell.openExternal(openUrl);
+    return { action: 'deny' };
+  });
+  view.webContents.on('will-navigate', (event, navUrl) => {
+    const allowed = `http://127.0.0.1:${urlPort}/`;
+    if (!navUrl.startsWith(allowed)) {
+      event.preventDefault();
+      log.warn(`codingView will-navigate blocked: ${navUrl}`);
+    }
+  });
+
+  mainWindow!.contentView.addChildView(view);
+  view.setVisible(false);
+  return view;
+}
+
+/** 显示 codingView：不存在则创建，已存在则复用并 loadURL（端口可能变了） */
+function showCodingView(url: string): void {
+  if (!codingView) codingView = createCodingView(url);
+  else codingView.webContents.loadURL(url);
+  showOnly(codingView);
 }
 
 /** 共用：创建 BrowserWindow 基础配置（两个模式共用） */
@@ -222,6 +269,7 @@ function createMainWindowOfflineFirst(config: LoadedConfig) {
     mainWindow = null;
     offlineView = null;
     contentView = null;
+    codingView = null; // v1.2: 随窗口销毁，否则 showOnly 会碰到已销毁的 view
     offlineReady = false;
     loadFailed = false;
   });
@@ -313,6 +361,7 @@ function createMainWindowLegacy(config: LoadedConfig) {
     retryView = null;
     errorView = null;
     contentView = null;
+    codingView = null; // v1.2: 随窗口销毁，否则 showOnly 会碰到已销毁的 view
     retryCount = 0;
     loadFailed = false;
   });
@@ -340,8 +389,10 @@ function createMainWindow(config: LoadedConfig) {
  *
  * 原因（Q3 + Q4）：offline-first 不创建 errorView，legacy 不创建 offlineView，
  * 对应 handler 在对方模式下永远不会触发，注册纯浪费。
+ *
+ * coding:* handlers（v1.2）两个模式共用，无条件注册；需要 config 读 codingAgent.tools。
  */
-function registerIpcHandlers(mode: 'offline-first' | 'legacy') {
+function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedConfig) {
   if (mode === 'legacy') {
     // error.html 「重试」按钮 → 完全重置 retryCount
     ipcMain.on('retry:request', () => {
@@ -364,6 +415,51 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy') {
       }
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // v1.2: coding handlers（两个模式共用）
+  // ---------------------------------------------------------------------------
+
+  /** renderer 拉工具列表（渲染 ToolPickerDialog） */
+  ipcMain.handle('coding:list-tools', () => config.codingAgent.tools);
+
+  /** 弹原生目录选择 dialog；取消返回 null */
+  ipcMain.handle('coding:choose-directory', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: '选择项目目录',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  /** 打开工具：external detached 唤起；embedded spawn + 主进程主动切 codingView */
+  ipcMain.handle('coding:open-tool', async (_e, toolId: string, dir: string) => {
+    if (!codingAgent) {
+      return { ok: false, reason: 'spawn-failed', message: 'codingAgent 未初始化' };
+    }
+    const tool = config.codingAgent.tools.find((t) => t.id === toolId);
+    if (!tool) {
+      return { ok: false, reason: 'unknown-tool', message: `未找到工具: ${toolId}` };
+    }
+    const result = await codingAgent.openTool(tool, dir);
+    // view 切换由主进程独占：embedded 就绪后主动加载 url
+    if (result.ok && result.url && tool.type === 'embedded') {
+      showCodingView(result.url);
+    }
+    return result;
+  });
+
+  /** 关闭内嵌 view，切回 offlineView（legacy 模式 fallback contentView） */
+  ipcMain.on('coding:close', () => {
+    log.info('user triggered close coding view');
+    showOnly(offlineView ?? contentView);
+  });
+
+  /** renderer 启动时拉初始状态 */
+  ipcMain.handle('coding:status', () => codingAgent?.getStatus() ?? { state: 'idle' });
 }
 
 // loadConfig() 是 async（内部调 app.getPath('userData')），esbuild CJS 拒绝顶层 await，故在 whenReady 内 await
@@ -373,7 +469,15 @@ app.whenReady().then(async () => {
   registerLogHandlers();
   const config = await loadConfig();
   log.info(`config loaded: ${config.width}x${config.height}`);
-  registerIpcHandlers(config.useOfflineFallback ? 'offline-first' : 'legacy');
+  registerIpcHandlers(config.useOfflineFallback ? 'offline-first' : 'legacy', config);
+  // v1.2: codingAgent 必须在 registerIpcHandlers 之后创建 —— handler 闭包读的是
+  // 模块级 codingAgent 变量，subscribe 推送到所有 BrowserWindow（renderer 侧 toast）
+  codingAgent = new CodingAgent(config.codingAgent);
+  codingAgent.subscribe((status: CodingStatus) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('coding:status', status);
+    }
+  });
   createMainWindow(config);
   log.info(`createMainWindow end: ${config.width}x${config.height}`);
 
@@ -400,6 +504,8 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   log.info('app quitting');
+  // 先 kill 内嵌子进程（同步返回，SIGKILL 兜底 2s 异步），再关日志文件
+  codingAgent?.shutdown();
   closeLogger();
 });
 
