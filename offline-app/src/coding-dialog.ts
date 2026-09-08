@@ -99,36 +99,19 @@ export async function openCodingDialog(): Promise<void> {
  * ToolPickerDialog 选完一个 tool 后的回调。
  * 流程：
  *   - 关 dialog
- *   - embedded tool 不弹目录选择（web UI 自己负责浏览文件，cwd 仅用于 npx 进程）
- *   - external tool 弹原生目录选择（用户选工程目录，IDE 启动后默认打开）
+ *   - 不弹目录选择：用 process.cwd() 作为 dir（embedded 给 npx 进程 cwd，
+ *     external 给 IDE 启动目录；config 已配好 command）
  *
- * chooseDirectory 返回 null 表示用户取消，函数静默返回（已无 dialog 可关）。
- *
- * openTool 早退路径兜底：main 进程 handler 的早退分支
- * （codingAgent 未初始化 / unknown-tool / catch 全包）只 return { ok:false, ... }
- * 而不 emit status 事件；老版本直接 await 丢结果，renderer 完全静默。
- * 现在取返回结果：ok=false 直接 ElMessage.error 提示，ok=true 时
- * embedded 由 main 侧 showCodingView 自动处理，external 无需额外 UX。
+ * openTool 早退路径兜底：main 进程 handler 的早退分支（codingAgent 未初始化
+ * / unknown-tool / catch）只 return { ok:false, ... } 而不 emit status。
+ * 现在取返回结果：ok=false 直接 ElMessage.error 提示。
  */
 export async function onToolPicked(tool: CodingTool): Promise<void> {
   visible.value = false;
   if (!window.electronAPI) return;
 
-  let dir: string;
-  if (tool.type === 'embedded') {
-    // 内嵌 web 工具不需要选目录（command + port 已在 config 配置）
-    dir = process.cwd();
-  } else {
-    // 外部 IDE 弹目录选择（用户选工程目录）
-    try {
-      const picked = await window.electronAPI.coding.chooseDirectory();
-      if (!picked) return;
-      dir = picked;
-    } catch (err) {
-      ElMessage.error({ message: `目录选择失败：${(err as Error).message}` });
-      return;
-    }
-  }
+  // 不弹目录选择：command/启动方式已在 config 配置，用 process.cwd()
+  const dir = process.cwd();
 
   try {
     const result = await window.electronAPI.coding.openTool(tool.id, dir);
@@ -136,7 +119,6 @@ export async function onToolPicked(tool: CodingTool): Promise<void> {
       ElMessage.error({ message: `启动失败：${result.message}`, duration: 4000, grouping: true });
     }
   } catch (err) {
-    // 极端情况：IPC reject / renderer 抛错
     ElMessage.error({ message: `启动失败：${(err as Error).message}`, duration: 4000, grouping: true });
   }
 }
