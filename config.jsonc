@@ -31,5 +31,74 @@
   // true（v0.6.0+ 默认）：offline-first。app 启动直接显示离线页（Vite 构建产物），URL 异步加载；
   //                     成功切到 contentView；失败/崩溃 → 留在离线页，TopBar「重新连接」可点
   // false（旧 v0.5.6 行为）：先显示 splash；URL 失败 → retryView 重试 N 次 → errorView（error 页「重试」按钮）
-  "useOfflineFallback": true
+  "useOfflineFallback": true,
+
+  // 编码工具列表（v1.2 新增）
+  // 每次点"写代码"会弹 dialog 列出这些工具，用户选一个后弹目录选择 dialog
+  // type: external ─► spawn detached，外部 IDE 接管
+  // type: embedded ─► spawn 内嵌 web 服务，主进程加载到 codingView
+  "codingAgent": {
+    "tools": [
+      {
+        "id": "opencode-ide",
+        "name": "OpenCode IDE",
+        "type": "external",
+        "command": "opencode",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "codebuddy",
+        "name": "CodeBuddy",
+        "type": "external",
+        "command": "codebuddy",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "kilo-code",
+        "name": "Kilo Code",
+        "type": "external",
+        "command": "kilo",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "zcode",
+        "name": "ZCode",
+        "type": "external",
+        "command": "zcode",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "minimax-code",
+        "name": "MiniMax Code",
+        "type": "external",
+        "command": "minimax-code",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "opencode-web",
+        "name": "OpenCode Web",
+        "description": "内嵌 opencode-ai Web UI",
+        "type": "embedded",
+        "command": "npx",
+        "args": ["opencode-ai", "web", "--port", "<port>", "--hostname", "127.0.0.1"],
+        "port": 4296,
+        "dirMode": "cwd"
+      },
+      {
+        "id": "dsh-web",
+        "name": "DeepSeek DSH",
+        "description": "内嵌 @deepseek-ai/dsh Web UI",
+        "type": "embedded",
+        "command": "npx",
+        "args": ["@deepseek-ai/dsh", "web", "--port", "<port>", "--hostname", "127.0.0.1"],
+        "port": 4297,
+        "dirMode": "cwd"
+      }
+    ]
+  }
 }

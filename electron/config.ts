@@ -10,11 +10,51 @@ const log = logger.child('config');
 export type UpdateChannel = 'stable' | 'beta';
 
 /**
- * 应用配置 schema（11 字段，全部必填）
+ * 编码工具基础字段
+ */
+export interface CodingToolBase {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** 外部编码工具：spawn detached，外部 IDE 接管 */
+export interface ExternalTool extends CodingToolBase {
+  type: 'external';
+  command: string;
+  path?: string;
+  args?: string[];
+  dirMode: 'positional' | 'cwd' | 'none';
+}
+
+/** 内嵌编码工具：spawn 内嵌 web 服务，主进程加载到 codingView */
+export interface EmbeddedTool extends CodingToolBase {
+  type: 'embedded';
+  command: string;
+  args: string[];
+  port: number;
+  dirMode: 'positional' | 'cwd';
+}
+
+/** 编码工具（外部 IDE / 内嵌 Web） */
+export type CodingTool = ExternalTool | EmbeddedTool;
+
+/** 编码工具配置 */
+export interface CodingAgentConfig {
+  tools: CodingTool[];
+}
+
+/**
+ * 应用配置 schema（12 字段，全部必填）
  *
  * 视图策略由 `useOfflineFallback` 字段控制：
  * - true（v0.6.0+ 默认）：offline-first，app 启动直接显示离线页，URL 异步加载
  * - false：splash → retry → error 旧流程，contentView 失败时重试 N 次后切到错误页
+ *
+ * 编码工具列表由 `codingAgent` 字段控制（v1.2 新增）：
+ * - 每次点「写代码」会弹 dialog 列出这些工具，用户选一个后弹目录选择 dialog
+ * - type: external ─► spawn detached，外部 IDE 接管
+ * - type: embedded ─► spawn 内嵌 web 服务，主进程加载到 codingView
  */
 export interface AppConfig {
   /** 目标 URL（Agent 用户助手入口），仅接受 http:// 与 https:// */
@@ -43,6 +83,12 @@ export interface AppConfig {
    * - false：旧流程。先显示 splash；URL 失败 → retryView 重试 N 次 → errorView（error 页「重试」按钮触发新一轮）
    */
   useOfflineFallback: boolean;
+  /**
+   * 编码工具列表（v1.2 新增）。每次点「写代码」会弹 dialog 列出这些工具，用户选一个后弹目录选择 dialog
+   * - type: external ─► spawn detached，外部 IDE 接管
+   * - type: embedded ─► spawn 内嵌 web 服务，主进程加载到 codingView
+   */
+  codingAgent: CodingAgentConfig;
 }
 
 /**
@@ -152,6 +198,101 @@ export async function resolveConfigPath(): Promise<string> {
 }
 
 /**
+ * 校验 codingAgent.tools 数组（v1.2 新增）
+ * - 必须是数组，至少 1 个工具
+ * - id 非空 + 唯一
+ * - type: 'external' | 'embedded'
+ * - external: dirMode ∈ {positional, cwd, none}，args/path 可选
+ * - embedded: dirMode ∈ {positional, cwd}，args 必填为字符串数组，port ∈ [1, 65535]
+ */
+function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
+  if (!Array.isArray(raw)) {
+    throw new ConfigValidationError(`codingAgent.tools 必须是数组`, configPath);
+  }
+  if (raw.length === 0) {
+    throw new ConfigValidationError('codingAgent.tools 至少要有 1 个工具', configPath);
+  }
+
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  const tools: CodingTool[] = [];
+
+  raw.forEach((rawTool, i) => {
+    const tag = `codingAgent.tools[${i}]`;
+    if (typeof rawTool !== 'object' || rawTool === null) {
+      errors.push(`${tag} 必须是对象`);
+      return;
+    }
+    const t = rawTool as Record<string, unknown>;
+
+    if (typeof t.id !== 'string' || t.id.length === 0) {
+      errors.push(`${tag}.id 必须是非空字符串`);
+      return;
+    }
+    if (ids.has(t.id)) { errors.push(`${tag}.id 重复: "${t.id}"`); return; }
+    ids.add(t.id);
+
+    if (typeof t.name !== 'string' || t.name.length === 0) {
+      errors.push(`${tag}.name 必须是非空字符串`);
+    }
+    if (t.description !== undefined && typeof t.description !== 'string') {
+      errors.push(`${tag}.description 必须是字符串（可选）`);
+    }
+    if (t.type !== 'external' && t.type !== 'embedded') {
+      errors.push(`${tag}.type 必须是 'external' 或 'embedded'`);
+      return;
+    }
+    if (typeof t.command !== 'string' || t.command.length === 0) {
+      errors.push(`${tag}.command 必须是非空字符串`);
+    }
+
+    if (t.type === 'external') {
+      const allowedDir = ['positional', 'cwd', 'none'];
+      if (typeof t.dirMode !== 'string' || !allowedDir.includes(t.dirMode)) {
+        errors.push(`${tag}.dirMode 必须是 'positional'|'cwd'|'none'`);
+      }
+      if (t.args !== undefined && !Array.isArray(t.args)) {
+        errors.push(`${tag}.args 必须是字符串数组（可选）`);
+      }
+      if (t.path !== undefined && typeof t.path !== 'string') {
+        errors.push(`${tag}.path 必须是字符串（可选）`);
+      }
+      if (errors.length === 0) {
+        tools.push({
+          id: t.id, name: t.name,
+          ...(t.description !== undefined ? { description: t.description as string } : {}),
+          type: 'external', command: t.command,
+          ...(t.path !== undefined ? { path: t.path as string } : {}),
+          ...(t.args !== undefined ? { args: t.args as string[] } : { args: [] }),
+          dirMode: t.dirMode as 'positional' | 'cwd' | 'none',
+        });
+      }
+    } else {
+      const allowedDir = ['positional', 'cwd'];
+      if (typeof t.dirMode !== 'string' || !allowedDir.includes(t.dirMode)) {
+        errors.push(`${tag}.dirMode 必须是 'positional'|'cwd'`);
+      }
+      if (!Array.isArray(t.args)) errors.push(`${tag}.args 必须是字符串数组`);
+      if (!Number.isInteger(t.port) || (t.port as number) < 1 || (t.port as number) > 65535) {
+        errors.push(`${tag}.port 必须是 1-65535 的整数`);
+      }
+      if (errors.length === 0) {
+        tools.push({
+          id: t.id, name: t.name,
+          ...(t.description !== undefined ? { description: t.description as string } : {}),
+          type: 'embedded', command: t.command,
+          args: t.args as string[], port: t.port as number,
+          dirMode: t.dirMode as 'positional' | 'cwd',
+        });
+      }
+    }
+  });
+
+  if (errors.length > 0) throw new ConfigValidationError(errors.join('\n  - '), configPath);
+  return tools;
+}
+
+/**
  * 校验配置对象的 11 个字段（缺失 / 类型 / 范围）
  */
 function validateConfig(obj: unknown, configPath: string): AppConfig {
@@ -251,6 +392,16 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     errors.push(`useOfflineFallback 必须是 boolean (实际: ${JSON.stringify(o.useOfflineFallback)})`);
   }
 
+  // codingAgent（v1.2 新增）
+  let validatedTools: CodingTool[] = [];
+  if (!('codingAgent' in o) || !o.codingAgent) {
+    errors.push('字段 codingAgent 缺失');
+  } else {
+    validatedTools = validateCodingTools(
+      (o.codingAgent as Record<string, unknown>).tools, configPath
+    );
+  }
+
   if (errors.length > 0) {
     throw new ConfigValidationError(errors.join('\n  - '), configPath);
   }
@@ -267,6 +418,7 @@ function validateConfig(obj: unknown, configPath: string): AppConfig {
     updateChannel: o.updateChannel as UpdateChannel,
     dismissCooldownHours: o.dismissCooldownHours as number,
     useOfflineFallback: o.useOfflineFallback as boolean,
+    codingAgent: { tools: validatedTools },
   };
 }
 
