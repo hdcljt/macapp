@@ -24,7 +24,6 @@ export interface ElectronAPICoding {
   listTools(): Promise<unknown[]>;
   openTool(
     toolId: string,
-    dir: string,
   ): Promise<{ ok: boolean; url?: string; reason?: string; message?: string }>;
   chooseDirectory(): Promise<string | null>;
   close(): void;

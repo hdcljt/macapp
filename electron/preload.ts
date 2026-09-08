@@ -62,9 +62,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   coding: {
     listTools: (): Promise<unknown[]> => ipcRenderer.invoke('coding:list-tools'),
     openTool: (
-      toolId: string, dir: string,
+      toolId: string,
     ): Promise<{ ok: boolean; url?: string; reason?: string; message?: string }> =>
-      ipcRenderer.invoke('coding:open-tool', toolId, dir),
+      ipcRenderer.invoke('coding:open-tool', toolId),
     chooseDirectory: (): Promise<string | null> =>
       ipcRenderer.invoke('coding:choose-directory'),
     close: (): void => ipcRenderer.send('coding:close'),

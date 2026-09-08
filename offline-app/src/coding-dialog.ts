@@ -97,10 +97,9 @@ export async function openCodingDialog(): Promise<void> {
 
 /**
  * ToolPickerDialog 选完一个 tool 后的回调。
- * 流程：
- *   - 关 dialog
- *   - 不弹目录选择：用 process.cwd() 作为 dir（embedded 给 npx 进程 cwd，
- *     external 给 IDE 启动目录；config 已配好 command）
+ *
+ * 注意：renderer 是 sandboxed，process 全局不可用 → 不能用 process.cwd()。
+ * dir 由主进程自己定（process.cwd() 或配置字段），renderer 只发 toolId。
  *
  * openTool 早退路径兜底：main 进程 handler 的早退分支（codingAgent 未初始化
  * / unknown-tool / catch）只 return { ok:false, ... } 而不 emit status。
@@ -110,11 +109,8 @@ export async function onToolPicked(tool: CodingTool): Promise<void> {
   visible.value = false;
   if (!window.electronAPI) return;
 
-  // 不弹目录选择：command/启动方式已在 config 配置，用 process.cwd()
-  const dir = process.cwd();
-
   try {
-    const result = await window.electronAPI.coding.openTool(tool.id, dir);
+    const result = await window.electronAPI.coding.openTool(tool.id);
     if (result && result.ok === false && result.message) {
       ElMessage.error({ message: `启动失败：${result.message}`, duration: 4000, grouping: true });
     }

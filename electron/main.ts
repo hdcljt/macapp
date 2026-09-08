@@ -440,8 +440,9 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
     }
   });
 
-  /** 打开工具：external detached 唤起；embedded spawn + 主进程主动切 codingView */
-  ipcMain.handle('coding:open-tool', async (_e, toolId: string, dir: string) => {
+  /** 打开工具：external detached 唤起；embedded spawn + 主进程主动切 codingView
+   * dir 由主进程自己定（renderer 是 sandboxed 不能用 process.cwd()） */
+  ipcMain.handle('coding:open-tool', async (_e, toolId: string) => {
     try {
       if (!codingAgent) {
         return { ok: false, reason: 'spawn-failed', message: 'codingAgent 未初始化' };
@@ -450,7 +451,7 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
       if (!tool) {
         return { ok: false, reason: 'unknown-tool', message: `未找到工具: ${toolId}` };
       }
-      const result = await codingAgent.openTool(tool, dir);
+      const result = await codingAgent.openTool(tool, process.cwd());
       // view 切换由主进程独占：embedded 就绪后主动加载 url
       if (result.ok && result.url && tool.type === 'embedded') {
         showCodingView(result.url);

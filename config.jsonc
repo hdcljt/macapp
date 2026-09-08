@@ -44,7 +44,7 @@
         "id": "opencode-ide",
         "name": "OpenCode IDE",
         "type": "external",
-        "command": "opencode",
+        "command": "C:\\Users\\hudc\\AppData\\Local\\Programs\\@opencode-aidesktop\\OpenCode.exe",
         "args": [],
         "dirMode": "positional"
       },
@@ -52,15 +52,7 @@
         "id": "codebuddy",
         "name": "CodeBuddy",
         "type": "external",
-        "command": "codebuddy",
-        "args": [],
-        "dirMode": "positional"
-      },
-      {
-        "id": "kilo-code",
-        "name": "Kilo Code",
-        "type": "external",
-        "command": "kilo",
+        "command": "D:\\hudc\\AppData\\CodeBuddy CN\\CodeBuddy CN.exe",
         "args": [],
         "dirMode": "positional"
       },
@@ -96,7 +88,7 @@
         "description": "内嵌 @deepseek-ai/dsh Web UI",
         "type": "embedded",
         "command": "npx",
-        "args": ["@deepseek-ai/dsh", "web", "--port", "<port>", "--hostname", "127.0.0.1"],
+        "args": ["@deepseek-ai/dsh", "web", "--port", "<port>"],
         "port": 4297,
         "dirMode": "cwd"
       }

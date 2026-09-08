@@ -219,14 +219,16 @@ export class CodingAgent {
    *   → healthCheck 5s → ready-embedded / timeout
    * 注意：spawn 与 health check 串行；中途 'exit' 触发会清空 child，
    *   health check 失败时主动 kill 防止僵尸进程。
+   *
+   * 切换语义：openTool 检测到已有 child 时自动 shutdown 老的再启新的，
+   *   而不是拒绝（用户切工具是正常行为）。shutdown 是异步的，await 不阻塞 spawn。
    */
   private async spawnEmbedded(tool: EmbeddedTool, dir: string): Promise<CodingOpenResult> {
-    // 二次调用检测：embedded 模式单一活动进程，已有 child 在跑则拒绝
+    // 切换：自动 shutdown 老的 child。shutdown() 内 SIGTERM + 2s SIGKILL fallback，
+    // child.on('exit') 会异步清空 this.child。spawn 用新 port（pickPort 跳过占用）。
     if (this.child && !this.child.killed) {
-      const message = '已有内嵌工具在运行，请先关闭';
-      log.warn(message);
-      this.emit({ state: 'spawn-failed', message });
-      return { ok: false, reason: 'spawn-failed', message };
+      log.info(`switching embedded tool: shutdown previous child first`);
+      this.shutdown();
     }
 
     const port = await pickPort(tool.port);
@@ -242,11 +244,17 @@ export class CodingAgent {
 
     log.info(`spawn embedded: ${tool.command} ${args.join(' ')} (port=${port}, cwd=${cwd})`);
 
+    // 关键：embedded 命令通常是 'npx'，在 Windows 上是 npx.cmd shim。
+    // Node.js spawn 默认不解析 PATHEXT，必须 shell:true 让 cmd.exe 解析。
+    // resolveSpawnCommand 的候选循环在 shell:false 下无效（Node 也不接受直接 .cmd 路径）：
+    //   spawn('npx.cmd', ...) 同样 ENOENT —— Node 只对 .exe 走 CreateProcess。
+    // shell:true 让 cmd.exe 接管 PATHEXT 解析。
     const spawned = spawnWithCandidates(tool.command, args, {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd,
       env: { ...process.env, PORT: String(port) },
+      shell: process.platform === 'win32',
     });
     if (!spawned.child) {
       const message = spawned.error?.message ?? `spawn ${tool.command} failed`;
@@ -276,6 +284,21 @@ export class CodingAgent {
       if (stderrBuf.length >= STDERR_BUF_MAX) {
         log.warn(`[${tool.id} stderr] ${stderrBuf}`);
         stderrBuf = '';
+      }
+    });
+
+    // stdout 解析 token URL：dsh web 启动时输出 `dsh web: http://...?token=xxx`，
+    // 根路径访问会 401，必须用带 token 的 URL；opencode 等不带 token 的工具不会匹配，
+    // ready 时 fallback 到默认 port URL。
+    // 用首个匹配即可（同一个进程多次写同样 URL 会取第一次稳定的）。
+    let tokenUrl: string | null = null;
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      if (tokenUrl) return; // 已经拿到就不重复 parse
+      const match = text.match(/https?:\/\/[^\s]+/);
+      if (match) {
+        tokenUrl = match[0];
+        log.debug(`[${tool.id} stdout] detected URL: ${tokenUrl}`);
       }
     });
 
@@ -313,7 +336,16 @@ export class CodingAgent {
       return { ok: false, reason: 'timeout', message: '工具启动超时（5s 未就绪）' };
     }
 
-    const url = `http://127.0.0.1:${port}`;
+    // healthCheck 通过后，给 tokenUrl 解析 500ms 缓冲窗口：
+    // dsh web 启动后 stdout 输出 `dsh web: http://...?token=xxx`，但 child.stdout
+    // 'data' 事件可能在 healthCheck 通过后才异步触发（实测 ready 23ms 后才到），
+    // 此时必须等 token URL 出现，否则 ready.url 用默认 port URL → codingView 加载 404。
+    // opencode 等不带 token 的工具不会匹配 regex，500ms 后 tokenUrl 仍为 null，fallback 默认 URL。
+    if (!tokenUrl) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    const url = tokenUrl ?? `http://127.0.0.1:${port}`;
     log.info(`embedded ready: ${url}`);
     this.emit({ state: 'ready-embedded', url, toolId: tool.id });
     return { ok: true, url };
@@ -330,7 +362,12 @@ export class CodingAgent {
     while (Date.now() < deadline) {
       try {
         const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) });
-        if (res.ok) return true;
+        // 接受任何 < 500 的状态码：
+        // - 200: 工具正常（如 opencode web）
+        // - 401/403: 工具需要鉴权（dsh web 根路径返回 401，但带了 token URL 是好的）
+        // - 302/3xx: 重定向（部分 SPA 工具）
+        // - 5xx: 服务异常，不算 ready
+        if (res.status < 500) return true;
       } catch { /* 连接拒绝/超时，继续轮询 */ }
       await new Promise((r) => setTimeout(r, 200));
     }
