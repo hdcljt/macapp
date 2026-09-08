@@ -13,26 +13,37 @@ export type UpdateChannel = 'stable' | 'beta';
  * 编码工具基础字段
  */
 export interface CodingToolBase {
+  /** 工具唯一 id；dialog 内部用，UI 不展示 */
   id: string;
+  /** 显示名（dialog + toast） */
   name: string;
+  /** 可选描述（dialog tooltip） */
   description?: string;
 }
 
 /** 外部编码工具：spawn detached，外部 IDE 接管 */
 export interface ExternalTool extends CodingToolBase {
   type: 'external';
+  /** 命令名（如 'opencode' / 'cursor'） */
   command: string;
+  /** 完整可执行路径；非空时跳过 PATH 探测 */
   path?: string;
+  /** 命令参数；嵌入式模式下占位符 '<port>' spawn 时替换 */
   args?: string[];
+  /** 目录怎么传给命令 */
   dirMode: 'positional' | 'cwd' | 'none';
 }
 
 /** 内嵌编码工具：spawn 内嵌 web 服务，主进程加载到 codingView */
 export interface EmbeddedTool extends CodingToolBase {
   type: 'embedded';
+  /** 命令（通常是 'npx'） */
   command: string;
+  /** 命令参数；占位符 '<port>' spawn 时替换为实际端口 */
   args: string[];
+  /** 内嵌 web 监听端口；占用时自动探测 port+1 ~ port+4 */
   port: number;
+  /** 目录怎么传给命令 */
   dirMode: 'positional' | 'cwd';
 }
 
@@ -41,6 +52,7 @@ export type CodingTool = ExternalTool | EmbeddedTool;
 
 /** 编码工具配置 */
 export interface CodingAgentConfig {
+  /** 可选编码工具列表（external IDE + embedded Web） */
   tools: CodingTool[];
 }
 

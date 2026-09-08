@@ -37,6 +37,7 @@
   // 每次点"写代码"会弹 dialog 列出这些工具，用户选一个后弹目录选择 dialog
   // type: external ─► spawn detached，外部 IDE 接管
   // type: embedded ─► spawn 内嵌 web 服务，主进程加载到 codingView
+  // 注：embedded 的 args 里 <port> 占位符会在启动时被替换为实际可用端口（4296 被占则自动 +1）
   "codingAgent": {
     "tools": [
       {
