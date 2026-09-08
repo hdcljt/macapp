@@ -219,6 +219,7 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
 
   raw.forEach((rawTool, i) => {
     const tag = `codingAgent.tools[${i}]`;
+    const toolErrors: string[] = [];
     if (typeof rawTool !== 'object' || rawTool === null) {
       errors.push(`${tag} 必须是对象`);
       return;
@@ -226,38 +227,44 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
     const t = rawTool as Record<string, unknown>;
 
     if (typeof t.id !== 'string' || t.id.length === 0) {
-      errors.push(`${tag}.id 必须是非空字符串`);
+      toolErrors.push(`${tag}.id 必须是非空字符串`);
+      errors.push(...toolErrors);
       return;
     }
-    if (ids.has(t.id)) { errors.push(`${tag}.id 重复: "${t.id}"`); return; }
+    if (ids.has(t.id)) {
+      toolErrors.push(`${tag}.id 重复: "${t.id}"`);
+      errors.push(...toolErrors);
+      return;
+    }
     ids.add(t.id);
 
     if (typeof t.name !== 'string' || t.name.length === 0) {
-      errors.push(`${tag}.name 必须是非空字符串`);
+      toolErrors.push(`${tag}.name 必须是非空字符串`);
     }
     if (t.description !== undefined && typeof t.description !== 'string') {
-      errors.push(`${tag}.description 必须是字符串（可选）`);
+      toolErrors.push(`${tag}.description 必须是字符串（可选）`);
     }
     if (t.type !== 'external' && t.type !== 'embedded') {
-      errors.push(`${tag}.type 必须是 'external' 或 'embedded'`);
+      toolErrors.push(`${tag}.type 必须是 'external' 或 'embedded'`);
+      errors.push(...toolErrors);
       return;
     }
     if (typeof t.command !== 'string' || t.command.length === 0) {
-      errors.push(`${tag}.command 必须是非空字符串`);
+      toolErrors.push(`${tag}.command 必须是非空字符串`);
     }
 
     if (t.type === 'external') {
       const allowedDir = ['positional', 'cwd', 'none'];
       if (typeof t.dirMode !== 'string' || !allowedDir.includes(t.dirMode)) {
-        errors.push(`${tag}.dirMode 必须是 'positional'|'cwd'|'none'`);
+        toolErrors.push(`${tag}.dirMode 必须是 'positional'|'cwd'|'none'`);
       }
       if (t.args !== undefined && !Array.isArray(t.args)) {
-        errors.push(`${tag}.args 必须是字符串数组（可选）`);
+        toolErrors.push(`${tag}.args 必须是字符串数组（可选）`);
       }
       if (t.path !== undefined && typeof t.path !== 'string') {
-        errors.push(`${tag}.path 必须是字符串（可选）`);
+        toolErrors.push(`${tag}.path 必须是字符串（可选）`);
       }
-      if (errors.length === 0) {
+      if (toolErrors.length === 0) {
         tools.push({
           id: t.id, name: t.name,
           ...(t.description !== undefined ? { description: t.description as string } : {}),
@@ -270,13 +277,13 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
     } else {
       const allowedDir = ['positional', 'cwd'];
       if (typeof t.dirMode !== 'string' || !allowedDir.includes(t.dirMode)) {
-        errors.push(`${tag}.dirMode 必须是 'positional'|'cwd'`);
+        toolErrors.push(`${tag}.dirMode 必须是 'positional'|'cwd'`);
       }
-      if (!Array.isArray(t.args)) errors.push(`${tag}.args 必须是字符串数组`);
+      if (!Array.isArray(t.args)) toolErrors.push(`${tag}.args 必须是字符串数组`);
       if (!Number.isInteger(t.port) || (t.port as number) < 1 || (t.port as number) > 65535) {
-        errors.push(`${tag}.port 必须是 1-65535 的整数`);
+        toolErrors.push(`${tag}.port 必须是 1-65535 的整数`);
       }
-      if (errors.length === 0) {
+      if (toolErrors.length === 0) {
         tools.push({
           id: t.id, name: t.name,
           ...(t.description !== undefined ? { description: t.description as string } : {}),
@@ -286,6 +293,8 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
         });
       }
     }
+
+    errors.push(...toolErrors);
   });
 
   if (errors.length > 0) throw new ConfigValidationError(errors.join('\n  - '), configPath);
@@ -293,7 +302,7 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
 }
 
 /**
- * 校验配置对象的 11 个字段（缺失 / 类型 / 范围）
+ * 校验配置对象的 12 个字段（缺失 / 类型 / 范围）
  */
 function validateConfig(obj: unknown, configPath: string): AppConfig {
   if (typeof obj !== 'object' || obj === null) {
