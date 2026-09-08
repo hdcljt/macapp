@@ -123,11 +123,11 @@ export async function onToolPicked(tool: CodingTool): Promise<void> {
   try {
     const result = await window.electronAPI.coding.openTool(tool.id, dir);
     if (result && result.ok === false && result.message) {
-      ElMessage.error(`启动失败：${result.message}`, { duration: 4000, grouping: true });
+      ElMessage.error({ message: `启动失败：${result.message}`, duration: 4000, grouping: true });
     }
   } catch (err) {
     // 极端情况：IPC reject / renderer 抛错
-    ElMessage.error(`启动失败：${(err as Error).message}`, { duration: 4000, grouping: true });
+    ElMessage.error({ message: `启动失败：${(err as Error).message}`, duration: 4000, grouping: true });
   }
 }
 

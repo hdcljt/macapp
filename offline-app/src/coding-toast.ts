@@ -73,7 +73,6 @@ export function codingToast(status: CodingStatus): void {
         grouping: true,
       });
       break;
-    case 'spawning-embedded':
     case 'idle':
       // 第一阶段已处理（spawning 弹常驻；idle 已 closeAll）
       break;
