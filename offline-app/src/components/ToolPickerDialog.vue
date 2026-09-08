@@ -21,6 +21,26 @@ const emit = defineEmits<{
 function badge(type: CodingTool['type']): string {
   return type === 'embedded' ? '🌐 内嵌' : '🚀 外部'
 }
+
+/**
+ * 显示启动命令摘要：
+ * - external: path || command + args + dirMode='positional' 追加 <工程目录>
+ * - embedded: command + args（args 已含 <port> 占位符模板）
+ * - 若 tool.description 非空，覆盖命令摘要（让用户可选自定义显示文案）
+ */
+function commandSummary(tool: CodingTool): string {
+  if (tool.description && tool.description.length > 0) return tool.description;
+
+  const cmd = tool.path && tool.path.length > 0 ? tool.path : tool.command;
+  const args = tool.args ?? [];
+  const parts = [cmd, ...args];
+
+  if (tool.type === 'external' && tool.dirMode === 'positional') {
+    parts.push('<工程目录>');
+  }
+
+  return parts.join(' ').trim();
+}
 </script>
 
 <template>
@@ -44,7 +64,7 @@ function badge(type: CodingTool['type']): string {
           <span class="tool-badge">{{ badge(tool.type) }}</span>
           <span class="tool-name">{{ tool.name }}</span>
         </div>
-        <div v-if="tool.description" class="tool-desc">{{ tool.description }}</div>
+        <div class="tool-desc">{{ commandSummary(tool) }}</div>
       </button>
     </div>
   </ElDialog>
@@ -67,6 +87,7 @@ function badge(type: CodingTool['type']): string {
   font: inherit;
   color: inherit;
   transition: background-color 150ms, border-color 150ms;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
 
   &:hover {
     background: #f9fafb;
@@ -86,16 +107,20 @@ function badge(type: CodingTool['type']): string {
   border-radius: 6px;
   background: #eff6ff;
   color: #2563eb;
+  font-family: inherit;  // badge 不走 monospace
 }
 
 .tool-name {
   font-size: 14px;
   font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;  // name 用系统字体
 }
 
 .tool-desc {
-  margin-top: 4px;
+  margin-top: 6px;
   font-size: 12px;
   color: #6b7280;
+  word-break: break-all;
+  line-height: 1.4;
 }
 </style>
