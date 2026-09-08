@@ -97,7 +97,10 @@ export async function openCodingDialog(): Promise<void> {
 
 /**
  * ToolPickerDialog 选完一个 tool 后的回调。
- * 流程：关 dialog → 弹原生目录选择 → openTool(tool.id, dir)
+ * 流程：
+ *   - 关 dialog
+ *   - embedded tool 不弹目录选择（web UI 自己负责浏览文件，cwd 仅用于 npx 进程）
+ *   - external tool 弹原生目录选择（用户选工程目录，IDE 启动后默认打开）
  *
  * chooseDirectory 返回 null 表示用户取消，函数静默返回（已无 dialog 可关）。
  *
@@ -111,14 +114,21 @@ export async function onToolPicked(tool: CodingTool): Promise<void> {
   visible.value = false;
   if (!window.electronAPI) return;
 
-  let dir: string | null;
-  try {
-    dir = await window.electronAPI.coding.chooseDirectory();
-  } catch (err) {
-    ElMessage.error(`目录选择失败：${(err as Error).message}`);
-    return;
+  let dir: string;
+  if (tool.type === 'embedded') {
+    // 内嵌 web 工具不需要选目录（command + port 已在 config 配置）
+    dir = process.cwd();
+  } else {
+    // 外部 IDE 弹目录选择（用户选工程目录）
+    try {
+      const picked = await window.electronAPI.coding.chooseDirectory();
+      if (!picked) return;
+      dir = picked;
+    } catch (err) {
+      ElMessage.error({ message: `目录选择失败：${(err as Error).message}` });
+      return;
+    }
   }
-  if (!dir) return;
 
   try {
     const result = await window.electronAPI.coding.openTool(tool.id, dir);
