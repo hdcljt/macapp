@@ -1,0 +1,271 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import * as net from 'node:net';
+import { logger } from './logger';
+import type { CodingTool, CodingAgentConfig, ExternalTool, EmbeddedTool } from './config';
+
+const log = logger.child('coding');
+
+/**
+ * CodingAgent 状态机
+ * - idle: 无活动进程
+ * - launching-external: 外部 IDE 已 spawn，等待 OS 接管
+ * - spawning-embedded: 内嵌 web 已 spawn，等待 health check
+ * - ready-embedded: 内嵌 web health check 通过
+ * - spawn-failed: spawn 抛错或异步 'error' 事件
+ * - timeout: health check 5s 未就绪
+ * - exited: 内嵌进程非零退出
+ */
+export type CodingStatus =
+  | { state: 'idle' }
+  | { state: 'launching-external'; toolId: string }
+  | { state: 'spawning-embedded'; toolId: string }
+  | { state: 'ready-embedded'; url: string; toolId: string }
+  | { state: 'spawn-failed'; message: string }
+  | { state: 'timeout' }
+  | { state: 'exited'; code: number; toolId: string };
+
+/**
+ * openTool 返回结果（dialog 层自己处理 'unknown-tool'）
+ * - ok: true  → 调用方应进入对应视图（external 切回 idle；embedded 加载 url）
+ * - ok: false → spawn 失败 / 超时
+ */
+export type CodingOpenResult =
+  | { ok: true; url?: string }
+  | { ok: false; reason: 'unknown-tool' | 'spawn-failed' | 'timeout'; message: string };
+
+/**
+ * 探测端口是否空闲（127.0.0.1）
+ * - 监听成功 → 立刻关闭 → 返回 true
+ * - EADDRINUSE → 返回 false
+ */
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+/**
+ * 从 preferred 起探测 5 个端口，返回第一个空闲的；全占 → null
+ */
+async function pickPort(preferred: number): Promise<number | null> {
+  for (let p = preferred; p < preferred + 5; p++) {
+    if (await isPortFree(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * 构造 spawn 参数：
+ * - template 里 '<port>' 替换为实际 port
+ * - dirMode === 'positional' 时把 dir 追加到末尾
+ * - dirMode === 'cwd' 时由调用方设置 options.cwd
+ * - dirMode === 'none' 时既不追加也不设 cwd
+ */
+function buildArgs(template: string[], dir: string, dirMode: 'positional' | 'cwd' | 'none', port: number): string[] {
+  const result = template.map((arg) => arg === '<port>' ? String(port) : arg);
+  if (dirMode === 'positional') result.push(dir);
+  return result;
+}
+
+/**
+ * 编码工具进程管理器（external + embedded）
+ * - 单一活动进程：external 不持有 child（detached + unref），embedded 持有 child 引用
+ * - 状态机通过 emit() 通知订阅者；调用方可在 openTool 返回后立刻 getStatus() 拿到最新快照
+ */
+export class CodingAgent {
+  private status: CodingStatus = { state: 'idle' };
+  private child: ChildProcess | null = null;
+  private currentToolId: string | null = null;
+  private listeners = new Set<(s: CodingStatus) => void>();
+
+  constructor(private cfg: CodingAgentConfig) {}
+
+  /** 订阅状态变化；返回 unsubscribe */
+  subscribe(cb: (s: CodingStatus) => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  /** 同步获取当前状态 */
+  getStatus(): CodingStatus { return this.status; }
+
+  /** renderer 启动时拿初始状态（promise 形式与 ui store 对齐） */
+  getInitialStatus(): Promise<CodingStatus> { return Promise.resolve(this.status); }
+
+  private emit(next: CodingStatus): void {
+    this.status = next;
+    log.debug(`status: ${JSON.stringify(next)}`);
+    for (const cb of this.listeners) {
+      try { cb(next); } catch (err) { log.warn(`subscriber error: ${(err as Error).message}`); }
+    }
+  }
+
+  /**
+   * 打开工具入口
+   * - external → spawnExternal
+   * - embedded → spawnEmbedded
+   */
+  async openTool(tool: CodingTool, dir: string): Promise<CodingOpenResult> {
+    if (tool.type === 'external') return this.spawnExternal(tool, dir);
+    return this.spawnEmbedded(tool, dir);
+  }
+
+  /**
+   * external：spawn detached + stdio:ignore + shell:false
+   * 修原版本 bug：detached + 异步 'error' 事件可能晚于 return，导致 UI 已切回 idle 但 spawn-failed 来不及上报
+   * 修法：返回前用 child.on('spawn') / 'error' 任一抢先 resolved 决定 emit 什么；
+   *   若 return 时都没触发，则等 'spawn' 成功后才 emit launching-external → idle；
+   *   若 'error' 异步触发且还没 resolved → emit spawn-failed。
+   */
+  private spawnExternal(tool: ExternalTool, dir: string): CodingOpenResult {
+    this.currentToolId = tool.id;
+
+    const args: string[] = [];
+    if (tool.args) args.push(...tool.args);
+    if (tool.dirMode === 'positional') args.push(dir);
+
+    const cmd = tool.path && tool.path.length > 0 ? tool.path : tool.command;
+    const cwd = tool.dirMode === 'cwd' ? dir : process.cwd();
+
+    log.info(`spawn external: ${cmd} ${args.join(' ')} (cwd=${cwd})`);
+
+    let child: ChildProcess;
+    try {
+      child = spawn(cmd, args, {
+        detached: true, stdio: 'ignore', cwd, shell: false,
+      });
+    } catch (err) {
+      const message = (err as Error).message;
+      log.error(`external spawn threw: ${message}`);
+      this.emit({ state: 'spawn-failed', message });
+      return { ok: false, reason: 'spawn-failed', message };
+    }
+
+    let resolved = false;
+    child.on('error', (err) => {
+      if (resolved) return;
+      resolved = true;
+      log.warn(`external spawn error: ${err.message}`);
+      this.emit({ state: 'spawn-failed', message: err.message });
+    });
+    child.on('spawn', () => {
+      if (resolved) return;
+      resolved = true;
+      child.unref();
+      this.emit({ state: 'launching-external', toolId: tool.id });
+      setImmediate(() => this.emit({ state: 'idle' }));
+    });
+
+    return { ok: true };
+  }
+
+  /**
+   * embedded：pickPort → spawn + PORT env + pipe stdio → emit spawning-embedded
+   *   → child.on('exit')（code=0 回 idle；code≠0 上报 exited）
+   *   → healthCheck 5s → ready-embedded / timeout
+   * 注意：spawn 与 health check 串行；中途 'exit' 触发会清空 child，
+   *   health check 失败时主动 kill 防止僵尸进程。
+   */
+  private async spawnEmbedded(tool: EmbeddedTool, dir: string): Promise<CodingOpenResult> {
+    this.currentToolId = tool.id;
+
+    const port = await pickPort(tool.port);
+    if (port === null) {
+      const message = `端口 ${tool.port}~${tool.port + 4} 全部被占`;
+      log.error(message);
+      this.emit({ state: 'spawn-failed', message });
+      return { ok: false, reason: 'spawn-failed', message };
+    }
+
+    const args = buildArgs(tool.args, dir, tool.dirMode, port);
+    const cwd = tool.dirMode === 'cwd' ? dir : process.cwd();
+
+    log.info(`spawn embedded: ${tool.command} ${args.join(' ')} (port=${port}, cwd=${cwd})`);
+
+    let child: ChildProcess;
+    try {
+      child = spawn(tool.command, args, {
+        detached: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        env: { ...process.env, PORT: String(port) },
+      });
+    } catch (err) {
+      const message = (err as Error).message;
+      log.error(`embedded spawn threw: ${message}`);
+      this.emit({ state: 'spawn-failed', message });
+      return { ok: false, reason: 'spawn-failed', message };
+    }
+
+    this.child = child;
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trimEnd();
+      if (text.length > 0) log.warn(`[${tool.id} stderr] ${text.slice(-4096)}`);
+    });
+
+    this.emit({ state: 'spawning-embedded', toolId: tool.id });
+
+    child.on('exit', (code, signal) => {
+      log.info(`embedded exit: code=${code} signal=${signal}`);
+      this.child = null;
+      if (code === 0 || code === null) {
+        this.emit({ state: 'idle' });
+      } else {
+        this.emit({ state: 'exited', code: code ?? -1, toolId: this.currentToolId ?? tool.id });
+      }
+    });
+
+    const ready = await this.healthCheck(port, 5000);
+    if (!ready) {
+      log.error(`health check timeout: port=${port}`);
+      this.child?.kill('SIGTERM');
+      this.emit({ state: 'timeout' });
+      setImmediate(() => this.emit({ state: 'idle' }));
+      return { ok: false, reason: 'timeout', message: '工具启动超时（5s 未就绪）' };
+    }
+
+    const url = `http://127.0.0.1:${port}`;
+    log.info(`embedded ready: ${url}`);
+    this.emit({ state: 'ready-embedded', url, toolId: tool.id });
+    return { ok: true, url };
+  }
+
+  /**
+   * 轮询探测 127.0.0.1:<port>/ 是否返回 2xx
+   * - 200ms 间隔
+   * - 每次 fetch 1s timeout（用 AbortSignal.timeout）
+   * - 任一次 2xx → true；截止前都没成功 → false
+   */
+  private async healthCheck(port: number, timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) });
+        if (res.ok) return true;
+      } catch { /* 连接拒绝/超时，继续轮询 */ }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return false;
+  }
+
+  /**
+   * 关闭当前 embedded 子进程
+   * - external 已 unref，不需要处理
+   * - SIGTERM 后自旋 2s 等进程退出；未退出再 SIGKILL
+   */
+  shutdown(): void {
+    if (!this.child || this.child.killed) return;
+    log.info('shutdown: killing embedded child');
+    this.child.kill('SIGTERM');
+    const start = Date.now();
+    while (this.child && !this.child.killed && Date.now() - start < 2000) { /* spin */ }
+    if (this.child && !this.child.killed) {
+      log.warn('shutdown: SIGTERM timeout, sending SIGKILL');
+      this.child.kill('SIGKILL');
+    }
+  }
+}
