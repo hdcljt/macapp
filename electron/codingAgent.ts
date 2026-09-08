@@ -58,7 +58,7 @@ async function pickPort(preferred: number): Promise<number | null> {
 }
 
 /**
- * 构造 spawn 参数：
+ * 构造 embedded spawn 参数：
  * - template 里 '<port>' 替换为实际 port
  * - dirMode === 'positional' 时把 dir 追加到末尾
  * - dirMode === 'cwd' 时由调用方设置 options.cwd
@@ -66,6 +66,22 @@ async function pickPort(preferred: number): Promise<number | null> {
  */
 function buildArgs(template: string[], dir: string, dirMode: 'positional' | 'cwd' | 'none', port: number): string[] {
   const result = template.map((arg) => arg === '<port>' ? String(port) : arg);
+  if (dirMode === 'positional') result.push(dir);
+  return result;
+}
+
+/**
+ * 构造 external spawn 参数（无 <port> 替换）
+ * - dirMode === 'positional' 时把 dir 追加到末尾
+ * - dirMode === 'cwd' 时由调用方设置 options.cwd
+ * - dirMode === 'none' 时既不追加也不设 cwd
+ */
+function buildExternalArgs(
+  template: string[],
+  dir: string,
+  dirMode: 'positional' | 'cwd' | 'none',
+): string[] {
+  const result = [...template];
   if (dirMode === 'positional') result.push(dir);
   return result;
 }
@@ -117,15 +133,14 @@ export class CodingAgent {
    * external：spawn detached + stdio:ignore + shell:false
    * 修原版本 bug：detached + 异步 'error' 事件可能晚于 return，导致 UI 已切回 idle 但 spawn-failed 来不及上报
    * 修法：返回前用 child.on('spawn') / 'error' 任一抢先 resolved 决定 emit 什么；
-   *   若 return 时都没触发，则等 'spawn' 成功后才 emit launching-external → idle；
+   *   若 return 时都没触发，则等 'spawn' 成功后才 emit launching-external；
    *   若 'error' 异步触发且还没 resolved → emit spawn-failed。
+   * launching-external 持续到下次 openTool 或 app 退出，不再 setImmediate 回 idle。
    */
   private spawnExternal(tool: ExternalTool, dir: string): CodingOpenResult {
     this.currentToolId = tool.id;
 
-    const args: string[] = [];
-    if (tool.args) args.push(...tool.args);
-    if (tool.dirMode === 'positional') args.push(dir);
+    const args = buildExternalArgs(tool.args ?? [], dir, tool.dirMode);
 
     const cmd = tool.path && tool.path.length > 0 ? tool.path : tool.command;
     const cwd = tool.dirMode === 'cwd' ? dir : process.cwd();
@@ -156,7 +171,7 @@ export class CodingAgent {
       resolved = true;
       child.unref();
       this.emit({ state: 'launching-external', toolId: tool.id });
-      setImmediate(() => this.emit({ state: 'idle' }));
+      // 不自动回 idle：launching-external 持续到下次 openTool 或 app 退出
     });
 
     return { ok: true };
@@ -171,6 +186,14 @@ export class CodingAgent {
    */
   private async spawnEmbedded(tool: EmbeddedTool, dir: string): Promise<CodingOpenResult> {
     this.currentToolId = tool.id;
+
+    // 二次调用检测：embedded 模式单一活动进程，已有 child 在跑则拒绝
+    if (this.child && !this.child.killed) {
+      const message = '已有内嵌工具在运行，请先关闭';
+      log.warn(message);
+      this.emit({ state: 'spawn-failed', message });
+      return { ok: false, reason: 'spawn-failed', message };
+    }
 
     const port = await pickPort(tool.port);
     if (port === null) {
@@ -202,20 +225,32 @@ export class CodingAgent {
 
     this.child = child;
 
+    // stderr 累计 buffer：避免 per-chunk slice 丢日志；满 4KB 整段打印并清空
+    let stderrBuf = '';
+    const STDERR_BUF_MAX = 4 * 1024;
     child.stderr?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString().trimEnd();
-      if (text.length > 0) log.warn(`[${tool.id} stderr] ${text.slice(-4096)}`);
+      stderrBuf += chunk.toString();
+      if (stderrBuf.length > STDERR_BUF_MAX) {
+        stderrBuf = stderrBuf.slice(-STDERR_BUF_MAX);
+      }
+      const text = stderrBuf.trimEnd();
+      if (text.length > 0) {
+        log.warn(`[${tool.id} stderr] ${stderrBuf}`);
+        stderrBuf = '';
+      }
     });
 
     this.emit({ state: 'spawning-embedded', toolId: tool.id });
 
+    // 用 closure 捕获 spawn 时的 toolId，避免后续 openTool 覆盖 currentToolId 导致 exited event toolId 错误
+    const toolIdAtSpawn = tool.id;
     child.on('exit', (code, signal) => {
       log.info(`embedded exit: code=${code} signal=${signal}`);
       this.child = null;
       if (code === 0 || code === null) {
         this.emit({ state: 'idle' });
       } else {
-        this.emit({ state: 'exited', code: code ?? -1, toolId: this.currentToolId ?? tool.id });
+        this.emit({ state: 'exited', code: code ?? -1, toolId: toolIdAtSpawn });
       }
     });
 
@@ -255,17 +290,21 @@ export class CodingAgent {
   /**
    * 关闭当前 embedded 子进程
    * - external 已 unref，不需要处理
-   * - SIGTERM 后自旋 2s 等进程退出；未退出再 SIGKILL
+   * - SIGTERM 后用 setTimeout 兜底 2s SIGKILL（异步，不阻塞主线程）
+   * - setTimeout.unref() 不阻止进程退出
+   * - 同步返回：child.once('exit') 在 SIGTERM 后会异步 emit exited
    */
   shutdown(): void {
     if (!this.child || this.child.killed) return;
+    const child = this.child;
     log.info('shutdown: killing embedded child');
-    this.child.kill('SIGTERM');
-    const start = Date.now();
-    while (this.child && !this.child.killed && Date.now() - start < 2000) { /* spin */ }
-    if (this.child && !this.child.killed) {
-      log.warn('shutdown: SIGTERM timeout, sending SIGKILL');
-      this.child.kill('SIGKILL');
-    }
+    child.kill('SIGTERM');
+    const fallback = setTimeout(() => {
+      if (!child.killed) {
+        log.warn('shutdown: SIGTERM timeout, sending SIGKILL');
+        child.kill('SIGKILL');
+      }
+    }, 2000);
+    fallback.unref();
   }
 }
