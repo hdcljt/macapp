@@ -486,11 +486,16 @@ app.whenReady().then(async () => {
   log.info(`config loaded: ${config.width}x${config.height}`);
   registerIpcHandlers(config.useOfflineFallback ? 'offline-first' : 'legacy', config);
   // v1.2: codingAgent 必须在 registerIpcHandlers 之后创建 —— handler 闭包读的是
-  // 模块级 codingAgent 变量，subscribe 推送到所有 BrowserWindow（renderer 侧 toast）
+  // 模块级 codingAgent 变量。subscribe 推送目标必须遍历 WebContentsView 子视图：
+  // mainWindow 自身从不 loadFile/loadURL（所有页面都跑在 contentView.addChildView 的
+  // WebContentsView 里），BrowserWindow.webContents 收不到任何渲染代码，send 到它毫无意义。
+  // WebContentsView 拥有独立 webContents，必须逐个 send。
   codingAgent = new CodingAgent(config.codingAgent);
   codingAgent.subscribe((status: CodingStatus) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send('coding:status', status);
+    for (const view of allViews()) {
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.send('coding:status', status);
+      }
     }
   });
   createMainWindow(config);

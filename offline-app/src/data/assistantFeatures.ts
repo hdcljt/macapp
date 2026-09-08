@@ -24,6 +24,14 @@ export interface FeatureCard {
   icon: string; // emoji
   /** 图标容器背景（淡色，hex）。 */
   iconBg: string;
+  /**
+   * 稳定的机器可读 action 标识。
+   * - 业务逻辑（点击跳转 / 弹 dialog 等）按 action 匹配，不依赖 title 文案。
+   * - 当前唯一值 'code' → 打开编码工具选择 dialog（App.vue onCardClick 处理）。
+   * - 留空字符串/undefined 表示该卡片暂无 action（offline 占位）。
+   * - title/desc 仍是人类可读文案，i18n 时只改文案，不改 action。
+   */
+  action?: 'code' | string;
 }
 
 // 功能区块数据
@@ -65,6 +73,7 @@ export const featureSections: FeatureSection[] = [
         desc: '快速编写代码',
         icon: '💻',
         iconBg: '#dbeafe', // bg-blue-100
+        action: 'code',
       },
     ],
   },

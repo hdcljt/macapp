@@ -100,7 +100,12 @@ export async function openCodingDialog(): Promise<void> {
  * 流程：关 dialog → 弹原生目录选择 → openTool(tool.id, dir)
  *
  * chooseDirectory 返回 null 表示用户取消，函数静默返回（已无 dialog 可关）。
- * openTool 失败用 console.warn 而非 ElMessage（codingToast 已会推 spawn-failed 状态）。
+ *
+ * openTool 早退路径兜底：main 进程 handler 的早退分支
+ * （codingAgent 未初始化 / unknown-tool / catch 全包）只 return { ok:false, ... }
+ * 而不 emit status 事件；老版本直接 await 丢结果，renderer 完全静默。
+ * 现在取返回结果：ok=false 直接 ElMessage.error 提示，ok=true 时
+ * embedded 由 main 侧 showCodingView 自动处理，external 无需额外 UX。
  */
 export async function onToolPicked(tool: CodingTool): Promise<void> {
   visible.value = false;
@@ -116,10 +121,13 @@ export async function onToolPicked(tool: CodingTool): Promise<void> {
   if (!dir) return;
 
   try {
-    await window.electronAPI.coding.openTool(tool.id, dir);
+    const result = await window.electronAPI.coding.openTool(tool.id, dir);
+    if (result && result.ok === false && result.message) {
+      ElMessage.error(`启动失败：${result.message}`, { duration: 4000, grouping: true });
+    }
   } catch (err) {
-    // codingToast 已会触发 spawn-failed；这里仅记录原始异常
-    console.warn('[coding] openTool failed:', (err as Error).message);
+    // 极端情况：IPC reject / renderer 抛错
+    ElMessage.error(`启动失败：${(err as Error).message}`, { duration: 4000, grouping: true });
   }
 }
 

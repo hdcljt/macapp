@@ -28,8 +28,8 @@ function onTabSelect(id: string) {
   if (id === 'code') openCodingDialog();
 }
 function onCardClick(card: FeatureCard) {
-  // 「写代码」卡片：走 dialog 流程
-  if (card.title === '写代码') openCodingDialog();
+  // 按 action 字段路由（稳定标识，不依赖 title 文案 i18n）
+  if (card.action === 'code') openCodingDialog();
   else console.log(`card click (offline): ${card.title}`);
 }
 function onSend(_text: string) { console.log('send (offline)'); }
