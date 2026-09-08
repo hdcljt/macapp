@@ -222,7 +222,7 @@ async function installAndStart() {
 | `install-failed` | ElMessage.error(`安装失败：${message}`) + 「重试」按钮 |
 | `no-node` | ElNotification（更显眼，带操作链接）`请先安装 Node.js` + 「打开 nodejs.org」按钮（调 shell.openExternal） |
 | `spawn-failed` | ElMessage.error(`启动失败：${message}`) + 「重试」 |
-| `ok` | showOnly(codingView)，toast 关闭 |
+| `ok` | 主进程自动 `showOnly(codingView)`；前端收到 `coding:status` 推送后调用 `ElMessage.closeAll()` 关闭 installing / spawning toast |
 
 **禁用交互**：installing 状态下编码 tab 二次点击忽略（避免重复触发）；UI 显示 loading spinner。
 
