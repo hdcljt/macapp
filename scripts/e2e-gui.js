@@ -2,7 +2,8 @@
  * 完整 GUI 端到端测试：Playwright _electron 启 app，
  * 对 3 个工具各点一次，截图 + 验证主进程日志 + 验证页面状态。
  *
- * 用法：timeout 180 node scripts/e2e-gui.js
+ * 用法：timeout 120 node scripts/e2e-gui.js
+ * 实测 ~90s（3 个工具 × ~25s + 启动/screenshot 开销），120s 留缓冲
  */
 const { _electron: electron } = require('playwright');
 const fs = require('node:fs');
