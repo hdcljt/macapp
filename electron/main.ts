@@ -110,8 +110,8 @@ function createBaseWindow(config: LoadedConfig): BrowserWindow {
     height: config.height,
     minWidth: config.minWidth,
     minHeight: config.minHeight,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 16, y: 16 },
+    // 统一使用原生标题栏（macOS 不再用 hiddenInset 沉浸式：业务需要显示标题栏）
+    titleBarStyle: 'default',
     backgroundColor: '#FFFFFF',
     // 标题带版本号（任务栏一眼能看出当前版本）
     // 不用 app.getName()：dev 模式下它返回 npm「name」= macapp，不是 productName
