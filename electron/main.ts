@@ -425,31 +425,42 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
 
   /** 弹原生目录选择 dialog；取消返回 null */
   ipcMain.handle('coding:choose-directory', async () => {
-    const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
-    if (!win) return null;
-    const result = await dialog.showOpenDialog(win, {
-      properties: ['openDirectory'],
-      title: '选择项目目录',
-    });
-    if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0];
+    try {
+      const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+      if (!win) return null;
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openDirectory'],
+        title: '选择项目目录',
+      });
+      if (result.canceled || result.filePaths.length === 0) return null;
+      return result.filePaths[0];
+    } catch (err) {
+      log.error(`coding:choose-directory failed: ${(err as Error).message}`);
+      return null;
+    }
   });
 
   /** 打开工具：external detached 唤起；embedded spawn + 主进程主动切 codingView */
   ipcMain.handle('coding:open-tool', async (_e, toolId: string, dir: string) => {
-    if (!codingAgent) {
-      return { ok: false, reason: 'spawn-failed', message: 'codingAgent 未初始化' };
+    try {
+      if (!codingAgent) {
+        return { ok: false, reason: 'spawn-failed', message: 'codingAgent 未初始化' };
+      }
+      const tool = config.codingAgent.tools.find((t) => t.id === toolId);
+      if (!tool) {
+        return { ok: false, reason: 'unknown-tool', message: `未找到工具: ${toolId}` };
+      }
+      const result = await codingAgent.openTool(tool, dir);
+      // view 切换由主进程独占：embedded 就绪后主动加载 url
+      if (result.ok && result.url && tool.type === 'embedded') {
+        showCodingView(result.url);
+      }
+      return result;
+    } catch (err) {
+      const message = (err as Error).message;
+      log.error(`coding:open-tool failed: ${message}`);
+      return { ok: false, reason: 'spawn-failed', message };
     }
-    const tool = config.codingAgent.tools.find((t) => t.id === toolId);
-    if (!tool) {
-      return { ok: false, reason: 'unknown-tool', message: `未找到工具: ${toolId}` };
-    }
-    const result = await codingAgent.openTool(tool, dir);
-    // view 切换由主进程独占：embedded 就绪后主动加载 url
-    if (result.ok && result.url && tool.type === 'embedded') {
-      showCodingView(result.url);
-    }
-    return result;
   });
 
   /** 关闭内嵌 view，切回 offlineView（legacy 模式 fallback contentView） */
@@ -459,7 +470,11 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
   });
 
   /** renderer 启动时拉初始状态 */
-  ipcMain.handle('coding:status', () => codingAgent?.getStatus() ?? { state: 'idle' });
+  ipcMain.handle('coding:status', async () =>
+    codingAgent
+      ? await codingAgent.getInitialStatus()
+      : { state: 'idle' as const },
+  );
 }
 
 // loadConfig() 是 async（内部调 app.getPath('userData')），esbuild CJS 拒绝顶层 await，故在 whenReady 内 await
