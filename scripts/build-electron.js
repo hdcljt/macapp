@@ -5,10 +5,28 @@
 const { build } = require('esbuild');
 const path = require('node:path');
 const fs = require('node:fs');
+const { execFile } = require('node:child_process');
 
 // CJS 模式下 __dirname 是内置的；ESM 模式下需要用 import.meta.url
 
 const root = path.resolve(__dirname, '..');
+
+/**
+ * 在子目录跑 npm script。stdio inherit 让用户看到 vite 输出。
+ * 比 exec('cd ... && npm ...') 安全（避免 shell injection + 跨平台）。
+ * Windows 上 npm 是 npm.cmd，Node 18+ 默认拒绝 spawn .cmd（EINVAL）作为 CVE 缓解，
+ * 必须 shell: true。参数是常量数组，不拼接用户输入，shell 注入风险为零。
+ * 代价是 Node 打印 DEP0190 DeprecationWarning（已知噪声，可忽略）。
+ */
+function runNpmScript(cwdRel, script) {
+  return new Promise((resolve, reject) => {
+    const cwd = path.join(root, cwdRel);
+    const cmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    execFile(cmd, ['run', script, '--no-audit', '--no-fund'], { cwd, stdio: 'inherit', shell: true }, (err) => {
+      if (err) reject(err); else resolve();
+    });
+  });
+}
 
 async function buildElectron() {
   const outdir = path.join(root, 'dist-electron');
@@ -60,6 +78,11 @@ async function buildElectron() {
     fs.copyFileSync(src, dest);
     console.log(`📄 复制 static/${file} → dist-electron/`);
   }
+
+  // offline-app: 自动跑 vite build（用户跑 npm run dev 时不再需要手动 build:offline）
+  // vite 配置 outDir: '../dist-electron/offline-app'，与 main.ts 期望路径一致
+  console.log('📦 编译 offline-app → dist-electron/offline-app/');
+  await runNpmScript('offline-app', 'build');
 
   console.log('✅ Electron 编译完成');
 }
