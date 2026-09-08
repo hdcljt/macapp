@@ -59,4 +59,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('updater:error', (_e, msg: string) => cb(msg));
     },
   },
+  coding: {
+    listTools: (): Promise<unknown[]> => ipcRenderer.invoke('coding:list-tools'),
+    openTool: (
+      toolId: string, dir: string,
+    ): Promise<{ ok: boolean; url?: string; reason?: string; message?: string }> =>
+      ipcRenderer.invoke('coding:open-tool', toolId, dir),
+    chooseDirectory: (): Promise<string | null> =>
+      ipcRenderer.invoke('coding:choose-directory'),
+    close: (): void => ipcRenderer.send('coding:close'),
+    onStatus: (cb: (status: unknown) => void): (() => void) => {
+      const listener = (_e: unknown, status: unknown) => cb(status);
+      ipcRenderer.on('coding:status', listener);
+      return () => ipcRenderer.removeListener('coding:status', listener);
+    },
+    getInitialStatus: (): Promise<unknown> => ipcRenderer.invoke('coding:status'),
+  },
 });
