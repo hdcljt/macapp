@@ -47,3 +47,7 @@ yarn-error.log*
 
 # Playwright 测试产物（手动调试时生成）
 .playwright-mcp/
+
+# e2e 截图（e2e-gui.js 跑出来的调试截图，体积大、不入库）
+e2e-*.png
+e2e-*.jpg

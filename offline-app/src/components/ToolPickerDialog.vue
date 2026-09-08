@@ -19,27 +19,25 @@ const emit = defineEmits<{
 }>()
 
 function badge(type: CodingTool['type']): string {
-  return type === 'embedded' ? '🌐 内嵌' : '🚀 外部'
+  if (type === 'embedded') return '🌐 内嵌'
+  if (type === 'url') return '🔗 URL'
+  return '🚀 外部'
 }
 
 /**
  * 显示启动命令摘要：
- * - external: path || command + args + dirMode='positional' 追加 <工程目录>
+ * - external: path || command + args（dirMode 仅影响 spawn 实现，dialog 不展开）
  * - embedded: command + args（args 已含 <port> 占位符模板）
+ * - url: 完整 url
  * - 若 tool.description 非空，覆盖命令摘要（让用户可选自定义显示文案）
  */
 function commandSummary(tool: CodingTool): string {
   if (tool.description && tool.description.length > 0) return tool.description;
+  if (tool.type === 'url') return tool.url;
 
   const cmd = tool.path && tool.path.length > 0 ? tool.path : tool.command;
   const args = tool.args ?? [];
-  const parts = [cmd, ...args];
-
-  if (tool.type === 'external' && tool.dirMode === 'positional') {
-    parts.push('<工程目录>');
-  }
-
-  return parts.join(' ').trim();
+  return [cmd, ...args].join(' ').trim();
 }
 </script>
 

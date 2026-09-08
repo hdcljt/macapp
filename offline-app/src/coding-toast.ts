@@ -66,13 +66,16 @@ export function codingToast(status: CodingStatus): void {
         grouping: true,
       });
       break;
-    case 'exited':
-      ElMessage.error({
-        message: `工具已退出（code=${status.code}）`,
-        duration: 4000,
-        grouping: true,
-      });
-      break;
+    // case 'exited':
+    //   主动 shutdown 老 child 也会触发 exited（taskkill /f /t 给非 0 exit code），
+    //   这种"主动退出"不该弹 toast 打扰用户；真异常退出通常意味着开发期 bug，靠主进程日志诊断即可。
+    //   暂时注释掉整个 case，留作未来真要提示时再加回来。
+    //   ElMessage.error({
+    //     message: `工具已退出（code=${status.code}）`,
+    //     duration: 4000,
+    //     grouping: true,
+    //   });
+    //   break;
     case 'idle':
       // 第一阶段已处理（spawning 弹常驻；idle 已 closeAll）
       break;

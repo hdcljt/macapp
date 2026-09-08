@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- CSP: chrome.html 用 inline script（DOMContentLoaded 后立即调用 chromeAPI），
+       script-src 'unsafe-inline' 是必须的；'self' 不允许 inline。其他来源严格限制
+       （无 img/font/connect），因为 chrome.html 只跟用户交互 + 调 IPC。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>chrome</title>
+  <style>
+    /* 重置默认：chromeView 是 32px 高的浮层，不需要滚动条/选区 */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      font-size: 13px;
+      color: #1f2937;
+      background: #f8fafc;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    /* 顶部一条 1px 分隔线，让 chrome 跟下方 view 视觉分清 */
+    body { border-bottom: 1px solid #e5e7eb; }
+
+    .titlebar {
+      display: flex;
+      align-items: center;
+      height: 100%;
+      /* 整条 chrome 都是 drag 区（窗口可拖动） */
+      -webkit-app-region: drag;
+    }
+
+    /* 「← 返回首页」按钮：仅在 codingView 激活时显示 */
+    .home-btn {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      height: 24px;
+      padding: 0 10px;
+      margin-left: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #374151;
+      font: inherit;
+      cursor: pointer;
+      /* 按钮要可点，所以单独禁掉 drag */
+      -webkit-app-region: no-drag;
+      transition: background-color 150ms, border-color 150ms;
+    }
+    .home-btn:hover {
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: #1d4ed8;
+    }
+    .home-btn:active {
+      background: #dbeafe;
+    }
+    .home-btn .arrow { font-size: 14px; line-height: 1; }
+
+    .app-title {
+      margin-left: 12px;
+      color: #6b7280;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .app-title strong { color: #1f2937; font-weight: 600; }
+
+    /* 右侧窗口控件：min / max / close（按钮单独禁 drag） */
+    .window-controls {
+      margin-left: auto;
+      display: flex;
+      height: 100%;
+      -webkit-app-region: no-drag;
+    }
+    .win-btn {
+      width: 46px;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: #6b7280;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 150ms, color 150ms;
+    }
+    .win-btn:hover { background: #e5e7eb; color: #1f2937; }
+    .win-btn.close:hover { background: #dc2626; color: #ffffff; }
+    .win-btn svg { width: 10px; height: 10px; fill: currentColor; }
+  </style>
+</head>
+<body>
+  <div class="titlebar">
+    <!-- 「← 返回首页」按钮：默认隐藏，codingView 激活时由 main 推送 chrome:set-coding-active 显示 -->
+    <button id="home-btn" class="home-btn" title="返回首页（关闭写代码）">
+      <span class="arrow">←</span>
+      <span>返回首页</span>
+    </button>
+    <span class="app-title"><strong id="app-name">算粒AI助手</strong> <span id="app-version"></span></span>
+
+    <div class="window-controls">
+      <button id="btn-min" class="win-btn" title="最小化" aria-label="最小化">
+        <svg viewBox="0 0 10 10"><rect y="4" width="10" height="1"/></svg>
+      </button>
+      <button id="btn-max" class="win-btn" title="最大化" aria-label="最大化">
+        <svg viewBox="0 0 10 10"><rect width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+      <button id="btn-close" class="win-btn close" title="关闭" aria-label="关闭">
+        <svg viewBox="0 0 10 10"><path d="M0 0L10 10M10 0L0 10" stroke="currentColor" stroke-width="1"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // chrome-preload.ts 暴露的 window.chromeAPI
+    const { onCodingActiveChange, getCodingActive, getAppVersion, minimize, toggleMaximize, close, home } = window.chromeAPI;
+
+    // 1) 拿版本号填标题
+    getAppVersion().then((v) => {
+      document.getElementById('app-version').textContent = `v${v}`;
+    });
+
+    // 2) 修竞态：chrome.html 启动时拉一次 codingView 当前状态。
+    //  setCodingActive(true) 可能在 chrome-preload listener 注册前就发了 IPC，
+    //  消息丢失 → 必须靠 getCodingActive() 主动拉取初始状态补齐。
+    function applyCodingActive(active) {
+      document.getElementById('home-btn').style.display = active ? 'flex' : 'none';
+    }
+    getCodingActive().then(applyCodingActive);
+    // 3) 后续变化仍走 push（编程 IPC）
+    onCodingActiveChange(applyCodingActive);
+
+    // 4) 按钮事件
+    document.getElementById('home-btn').addEventListener('click', () => home());
+    document.getElementById('btn-min').addEventListener('click', () => minimize());
+    document.getElementById('btn-max').addEventListener('click', () => toggleMaximize());
+    document.getElementById('btn-close').addEventListener('click', () => close());
+
+    // 5) ESC 也能返回首页（操作便利）
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.getElementById('home-btn').style.display === 'flex') {
+        home();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import * as net from 'node:net';
 import { logger } from './logger';
 import type { CodingTool, CodingAgentConfig, ExternalTool, EmbeddedTool } from './config';
@@ -245,17 +245,43 @@ export class CodingAgent {
     log.info(`spawn embedded: ${tool.command} ${args.join(' ')} (port=${port}, cwd=${cwd})`);
 
     // 关键：embedded 命令通常是 'npx'，在 Windows 上是 npx.cmd shim。
-    // Node.js spawn 默认不解析 PATHEXT，必须 shell:true 让 cmd.exe 解析。
-    // resolveSpawnCommand 的候选循环在 shell:false 下无效（Node 也不接受直接 .cmd 路径）：
-    //   spawn('npx.cmd', ...) 同样 ENOENT —— Node 只对 .exe 走 CreateProcess。
-    // shell:true 让 cmd.exe 接管 PATHEXT 解析。
-    const spawned = spawnWithCandidates(tool.command, args, {
-      detached: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      cwd,
-      env: { ...process.env, PORT: String(port) },
-      shell: process.platform === 'win32',
-    });
+    // Node.js spawn 默认不解析 PATHEXT，必须 cmd.exe 中介才能跑 .cmd。
+    // 不能用 spawn shell:true —— shell:true 在 Windows 上把 stdio pipe "提升"给 cmd.exe 自己，
+    //   cmd.exe 起的 npx.cmd → node → dsh 子进程 inherit cmd.exe 的 console handle，
+    //   子进程 stdout 写到 console（弹黑窗），不走我们的 pipe。
+    // 解法：显式 spawn 'cmd.exe' + '/c' + 命令，shell:false 让 cmd.exe 的 stdio 真正是 pipe，
+    //   子进程 inherit pipe handle → stdout 走 pipe 不弹窗。
+    // Windows 注意：必须 detached:false —— Node.js 文档明确说「detached:true makes the
+    //   child have its own console window. Once enabled, it cannot be disabled」，
+    //   即使配 windowsHide + creationFlags 也无法关闭。Unix 必须 detached:true 配合
+    //   process.kill(-pid) 才能杀整个进程组；Windows 走 taskkill /f /t（不依赖 detached）。
+    const isWin = process.platform === 'win32';
+    type SpawnResult = { child: ChildProcess } | { child: null; error: Error | null };
+    const wrapSpawn = (fn: () => ChildProcess): SpawnResult => {
+      try {
+        return { child: fn() };
+      } catch (err) {
+        return { child: null, error: err as Error };
+      }
+    };
+    const spawned: SpawnResult = isWin
+      ? wrapSpawn(() =>
+          spawn('cmd.exe', ['/c', tool.command, ...args], {
+            detached: false, // detached:true 在 Windows 上强制开 console window，windowsHide 关不掉
+            stdio: ['ignore', 'pipe', 'pipe'],
+            cwd,
+            env: { ...process.env, PORT: String(port) },
+            shell: false,
+            windowsHide: true,
+          }),
+        )
+      : spawnWithCandidates(tool.command, args, {
+          detached: true, // Unix: child 进入新 session，shutdown() 用 process.kill(-pid) 杀整个 group
+          stdio: ['ignore', 'pipe', 'pipe'],
+          cwd,
+          env: { ...process.env, PORT: String(port) },
+          shell: false,
+        });
     if (!spawned.child) {
       const message = spawned.error?.message ?? `spawn ${tool.command} failed`;
       log.error(`embedded spawn threw: ${message}`);
@@ -313,6 +339,13 @@ export class CodingAgent {
         stderrBuf = '';
       }
       log.info(`embedded exit: code=${code} signal=${signal}`);
+      // 注意：this.child 可能已经被 shutdown() 置 null（用户切工具主动杀）或被新 spawn 替换，
+      //   此时这个老 child 的 exit 是"主动结束"不是"异常退出"，不 emit exited 避免 UI 弹
+      //   "工具已退出" 噪音 toast。this.child === child 才是真正的"运行中 child 异常退出"。
+      if (this.child !== child) {
+        log.debug(`ignore exit of replaced child (active child differs)`);
+        return;
+      }
       this.child = null;
       if (code === 0 || code === null) {
         this.emit({ state: 'idle' });
@@ -377,23 +410,36 @@ export class CodingAgent {
   /**
    * 关闭当前 embedded 子进程
    * - external 已 unref，不需要处理
-   * - SIGTERM 后用 setTimeout 兜底 2s SIGKILL（异步，不阻塞主线程）
-   * - 判活用 exitCode/signalCode 均为 null（child.killed 只表示信号已发出，SIGTERM 后立刻为 true）
-   * - child.once('exit') 清理 timeout，避免对已退出进程做无意义的 SIGKILL
-   * - setTimeout.unref() 不阻止进程退出
+   * - Windows 上 child 是 cmd.exe（shell:true 启动 npx.cmd → node → dsh/opencode 二进制），
+   *   child.kill('SIGTERM') 只杀 cmd.exe 一层，npx/node/dsh 还活着，端口继续被占。
+   *   用 `taskkill /f /t` 杀整个进程树：/t = tree，/f = force，
+   *   execFileSync 同步等待 taskkill 跑完（before-quit 触发时主进程马上要退，
+   *   spawn 的异步 taskkill 会被 Node 提前终止导致树杀不干净）。
+   * - Unix 上没有等价的 taskkill，直接 SIGTERM 整个进程组：
+   *   spawn 时已 detached: true + setsid，process.kill(-pid) 杀整个 group。
+   *   2s 后兜底 SIGKILL（兜底 setTimeout unref 不阻止 Node 退出）。
+   * - 立即清空 this.child：避免 before-quit 异步阶段 + child.on('exit') race 双重 emit。
    */
   shutdown(): void {
     if (!this.child || this.child.killed) return;
     const child = this.child;
-    log.info('shutdown: killing embedded child');
-    const fallback = setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        log.warn('shutdown: SIGTERM timeout, sending SIGKILL');
-        child.kill('SIGKILL');
+    const pid = child.pid;
+    log.info(`shutdown: killing embedded child tree pid=${pid}`);
+    this.child = null; // 立即清空，避免退出 race
+    if (process.platform === 'win32') {
+      try {
+        execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], {
+          stdio: 'ignore',
+          windowsHide: true,
+        });
+      } catch {
+        // taskkill 在目标进程已退出时返回非 0 exit code（按设计），忽略
       }
-    }, 2000);
-    fallback.unref();
-    child.once('exit', () => clearTimeout(fallback));
-    child.kill('SIGTERM');
+      return;
+    }
+    try { process.kill(-pid!, 'SIGTERM'); } catch { /* group kill 可能 ESRCH */ }
+    setTimeout(() => {
+      try { process.kill(-pid!, 'SIGKILL'); } catch { /* 已退 */ }
+    }, 2000).unref();
   }
 }

@@ -67,11 +67,18 @@ async function buildElectron() {
     outfile: path.join(outdir, 'preload.js'),
   });
 
+  // 编译 chrome-preload.ts（chromeView 专用 preload，只暴露 chrome.html 需要的 IPC）
+  await build({
+    ...buildOptions,
+    entryPoints: [path.join(root, 'electron/chrome-preload.ts')],
+    outfile: path.join(outdir, 'chrome-preload.js'),
+  });
+
   // electron-updater 会被 esbuild inline bundle 进 main.js（无需额外配置）
   // 但 splash.html / retry.html / error.html / error.js / updater.html / updater.css / updater.js
   // 是 renderer 静态资源，必须手动复制到 dist-electron（运行时 __dirname = dist-electron/，
   // 文件保持扁平以便 main.ts / updater.ts 用 path.join(__dirname, 'xxx.html') 加载）
-  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js', 'common.css', 'error.css', 'updater.html', 'updater.css', 'updater.js'];
+  const staticFiles = ['splash.html', 'retry.html', 'error.html', 'error.js', 'common.css', 'error.css', 'updater.html', 'updater.css', 'updater.js', 'chrome.html'];
   for (const file of staticFiles) {
     const src = path.join(root, 'electron', 'static', file);
     const dest = path.join(outdir, file);

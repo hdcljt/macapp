@@ -21,6 +21,10 @@ let errorView: WebContentsView | null = null;
 let offlineView: WebContentsView | null = null; // offline-first 模式专用
 let contentView: WebContentsView | null = null;
 let codingView: WebContentsView | null = null; // v1.2 新增：内嵌编码工具 web UI
+let chromeView: WebContentsView | null = null; // 自定义标题栏浮层（v1.2+：返回首页 + 窗口控件）
+
+/** chromeView 高度（px）。 所有非 chrome view 都从 y=CHROME_HEIGHT 开始布局。 */
+const CHROME_HEIGHT = 32;
 
 let retryCount = 0;
 let loadFailed = false; // tracking：最近一次 URL 加载是否失败，避免 did-finish-load 覆盖 retry/error 视图
@@ -29,7 +33,10 @@ let codingAgent: CodingAgent | null = null; // v1.2 新增：编码工具进程�
 
 const log = logger.child('main');
 
-/** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部 */
+/** 同一时刻仅一个 View 可见；传入 null 表示隐藏全部
+ * chromeView 始终保持可见（自定义标题栏要盖在所有 view 顶部），
+ * 不参与排他显隐——只有 setCodingActive 推送状态让 chrome.html 决定是否显示「返回首页」按钮。
+ */
 function showOnly(view: WebContentsView | null) {
   loadingView?.setVisible(view === loadingView);
   retryView?.setVisible(view === retryView);
@@ -37,11 +44,12 @@ function showOnly(view: WebContentsView | null) {
   offlineView?.setVisible(view === offlineView);
   contentView?.setVisible(view === contentView);
   codingView?.setVisible(view === codingView);
+  chromeView?.setVisible(true);
 }
 
 /** 收集当前所有可见的 View 集合，用于 resize 同步 bounds */
 function allViews(): WebContentsView[] {
-  return [loadingView, retryView, errorView, offlineView, contentView, codingView].filter(
+  return [loadingView, retryView, errorView, offlineView, contentView, codingView, chromeView].filter(
     (v): v is WebContentsView => v !== null,
   );
 }
@@ -59,6 +67,21 @@ function emitLoadingState(state: 'show' | 'hide') {
   offlineView.webContents.send('online:loading', state);
 }
 
+/**
+ * 设置一个内容 view 的 bounds：跳过顶部 chromeView 占据的 CHROME_HEIGHT 像素。
+ * 必须在 view 创建时就调（不能等 resize 事件）—— 否则首帧渲染时 view 会盖住 chromeView，
+ * 看起来像"标题栏把内容遮住了"，resize 后才会自动修复（用户报告"经常出现"就是这个原因）。
+ */
+function setViewContentBounds(view: WebContentsView): void {
+  const [w, h] = mainWindow!.getContentSize();
+  view.setBounds({
+    x: 0,
+    y: CHROME_HEIGHT,
+    width: w,
+    height: Math.max(0, h - CHROME_HEIGHT),
+  });
+}
+
 /** 创建一个覆盖整个 mainWindow 的 WebContentsView，加载本地 HTML
  * @param htmlFile HTML 文件名（相对于 dist-electron/）
  * @param query 可选 query string 参数。sandboxed renderer 中 process.argv 不可靠，
@@ -73,8 +96,7 @@ function createView(htmlFile: string, query?: Record<string, string>): WebConten
       sandbox: true,
     },
   });
-  const [w, h] = mainWindow!.getContentSize();
-  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  setViewContentBounds(view);
   if (query && Object.keys(query).length > 0) {
     const fileUrl = pathToFileURL(path.join(__dirname, htmlFile));
     for (const [k, v] of Object.entries(query)) {
@@ -99,8 +121,7 @@ function createUrlView(url: string): WebContentsView {
       sandbox: false,
     },
   });
-  const [w, h] = mainWindow!.getContentSize();
-  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  setViewContentBounds(view);
   view.webContents.loadURL(url);
   mainWindow!.contentView.addChildView(view);
   view.setVisible(false);
@@ -122,8 +143,7 @@ function createCodingView(url: string): WebContentsView {
       sandbox: false,
     },
   });
-  const [w, h] = mainWindow!.getContentSize();
-  view.setBounds({ x: 0, y: 0, width: w, height: h });
+  setViewContentBounds(view);
   view.webContents.loadURL(url);
 
   view.webContents.setWindowOpenHandler(({ url: openUrl }) => {
@@ -140,6 +160,10 @@ function createCodingView(url: string): WebContentsView {
 
   mainWindow!.contentView.addChildView(view);
   view.setVisible(false);
+  // 把 chromeView 重新提到最上层：codingView 是延迟创建的（首次 showCodingView 才 addChildView），
+  // addChildView 会把它加到 children 末尾，盖在 chromeView 上 → 标题栏消失。
+  // WebContentsView.addChildView 对已存在的子 view 会把它移到末尾（置顶）。
+  if (chromeView) mainWindow!.contentView.addChildView(chromeView);
   return view;
 }
 
@@ -148,6 +172,50 @@ function showCodingView(url: string): void {
   if (!codingView) codingView = createCodingView(url);
   else codingView.webContents.loadURL(url);
   showOnly(codingView);
+  setCodingActive(true);
+}
+
+/** 是否处于 codingView（用于 chromeView 显示/隐藏「返回首页」按钮） */
+let isCodingActive = false;
+
+/** 设置并推送给 chromeView。codingView 状态变化时调用，保证 chrome.html 按钮可见性同步。
+ * 安全发送：chromeView 可能为 null（窗口销毁中）或未就绪，静默忽略。 */
+function setCodingActive(active: boolean): void {
+  if (isCodingActive === active) return;
+  isCodingActive = active;
+  if (!chromeView || chromeView.webContents.isDestroyed()) return;
+  chromeView.webContents.send('chrome:coding-active', active);
+}
+
+/** 推送窗口最大化状态给 chromeView：max 按钮需要切换图标（最大化 ↔ 还原）。
+ * 注册时机：createBaseWindow 里给每个新窗口注册 maximize/unmaximize 监听（macOS activate
+ * 可能多次 createMainWindow，每个新窗口都要单独注册）。 */
+function pushMaxState(maximized: boolean): void {
+  if (!chromeView || chromeView.webContents.isDestroyed()) return;
+  chromeView.webContents.send('chrome:max-state', maximized);
+}
+
+/**
+ * chromeView：自定义标题栏浮层（CHROME_HEIGHT 高，始终在顶部）
+ * 独立 chrome-preload.js 暴露 window.chromeAPI 给 chrome.html 用。
+ * 无 sandbox（IPC 不需要 sandbox）；contextIsolation 仍开启避免污染全局。
+ */
+function createChromeView(): WebContentsView {
+  const view = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'chrome-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  const [w] = mainWindow!.getContentSize();
+  view.setBounds({ x: 0, y: 0, width: w, height: CHROME_HEIGHT });
+  view.webContents.loadFile(path.join(__dirname, 'chrome.html'));
+  // 最后 addChildView → WebContentsView 顺序上 chromeView 永远在最上层
+  mainWindow!.contentView.addChildView(view);
+  view.setVisible(true);
+  return view;
 }
 
 /** 共用：创建 BrowserWindow 基础配置（两个模式共用） */
@@ -157,8 +225,9 @@ function createBaseWindow(config: LoadedConfig): BrowserWindow {
     height: config.height,
     minWidth: config.minWidth,
     minHeight: config.minHeight,
-    // 统一使用原生标题栏（macOS 不再用 hiddenInset 沉浸式：业务需要显示标题栏）
-    titleBarStyle: 'default',
+    // 自定义标题栏（chromeView）：隐藏原生标题栏，避免与 chromeView 重复占用顶部高度。
+    // 窗口仍可拖动（chrome.html 用 -webkit-app-region: drag），窗口控件由 chromeView 提供。
+    titleBarStyle: 'hidden',
     backgroundColor: '#FFFFFF',
     // 标题带版本号（任务栏一眼能看出当前版本）
     // 不用 app.getName()：dev 模式下它返回 npm「name」= macapp，不是 productName
@@ -174,6 +243,9 @@ function createBaseWindow(config: LoadedConfig): BrowserWindow {
   // 拦截 content 页通过 document.title 覆盖窗口标题
   win.on('page-title-updated', (event) => event.preventDefault());
   win.setMenuBarVisibility(false);
+  // 推送窗口最大化状态给 chromeView（max 按钮切换图标）
+  win.on('maximize', () => pushMaxState(true));
+  win.on('unmaximize', () => pushMaxState(false));
   return win;
 }
 
@@ -192,13 +264,20 @@ function attachContentViewCommonHandlers(allowedOriginPrefix: string) {
   });
 }
 
-/** 共用：resize 同步 bounds */
+/** 共用：resize 同步 bounds
+ * chromeView 占顶部 32px；其余 view 从 y=CHROME_HEIGHT 开始、height = totalHeight - CHROME_HEIGHT。
+ * Math.max(0, h - CHROME_HEIGHT) 防止窗口最小化瞬间 totalHeight 极小导致负高度 setBounds 报错。
+ */
 function attachResizeHandler(win: BrowserWindow) {
   win.on('resize', () => {
     if (!win || win.isDestroyed()) return;
-    const [w, h] = win.getContentSize();
     for (const v of allViews()) {
-      v.setBounds({ x: 0, y: 0, width: w, height: h });
+      if (v === chromeView) {
+        const [w] = win.getContentSize();
+        v.setBounds({ x: 0, y: 0, width: w, height: CHROME_HEIGHT });
+      } else {
+        setViewContentBounds(v);
+      }
     }
   });
 }
@@ -270,6 +349,8 @@ function createMainWindowOfflineFirst(config: LoadedConfig) {
     offlineView = null;
     contentView = null;
     codingView = null; // v1.2: 随窗口销毁，否则 showOnly 会碰到已销毁的 view
+    chromeView = null;
+    isCodingActive = false;
     offlineReady = false;
     loadFailed = false;
   });
@@ -281,6 +362,9 @@ function createMainWindowOfflineFirst(config: LoadedConfig) {
     // - 同一 process 反复创建 WebContentsView 时，先挂的 DevTools 会随 view 销毁 → 挂到 contentView 保证生存期最长
     contentView.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // 最后创建 chromeView（addChildView 顺序：后添加的在上层 → chromeView 永远在最上）
+  chromeView = createChromeView();
 }
 
 // =============================================================================
@@ -362,6 +446,8 @@ function createMainWindowLegacy(config: LoadedConfig) {
     errorView = null;
     contentView = null;
     codingView = null; // v1.2: 随窗口销毁，否则 showOnly 会碰到已销毁的 view
+    chromeView = null;
+    isCodingActive = false;
     retryCount = 0;
     loadFailed = false;
   });
@@ -369,6 +455,9 @@ function createMainWindowLegacy(config: LoadedConfig) {
   if (isDev) {
     contentView.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // 最后创建 chromeView（addChildView 顺序：后添加的在上层 → chromeView 永远在最上）
+  chromeView = createChromeView();
 }
 
 function createMainWindow(config: LoadedConfig) {
@@ -467,7 +556,44 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
   /** 关闭内嵌 view，切回 offlineView（legacy 模式 fallback contentView） */
   ipcMain.on('coding:close', () => {
     log.info('user triggered close coding view');
+    setCodingActive(false);
     showOnly(offlineView ?? contentView);
+  });
+
+  // =============================================================================
+  // chromeView IPC：自定义标题栏的按钮事件（min/max/close + 返回首页）
+  // 跟 native window 同语义，但走 HTML 按钮（titleBarStyle:hidden 下原生按钮没了）
+  // =============================================================================
+
+  /** 「← 返回首页」按钮：等价于 coding:close，回到 offlineView。 */
+  ipcMain.on('chrome:home', () => {
+    log.info('user clicked home from chrome view');
+    if (isCodingActive) {
+      setCodingActive(false);
+      showOnly(offlineView ?? contentView);
+    }
+    // 非 coding 状态点 home 视为 no-op，避免误切 view
+  });
+
+  /** chrome.html 启动时拉一次 codingView 当前状态，修竞态：
+   *  setCodingActive(true) 可能在 chrome-preload listener 注册前就发了 IPC，
+   *  此时 push 消息丢失 → 必须靠 getCodingActive() 主动拉取。 */
+  ipcMain.handle('chrome:get-coding-active', () => isCodingActive);
+
+  ipcMain.on('chrome:min', () => {
+    log.debug('user clicked minimize from chrome view');
+    mainWindow?.minimize();
+  });
+
+  ipcMain.on('chrome:max', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  });
+
+  ipcMain.on('chrome:close', () => {
+    log.debug('user clicked close from chrome view');
+    mainWindow?.close();
   });
 
   /** renderer 启动时拉初始状态 */
