@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import * as net from 'node:net';
 import { logger } from './logger';
 import type { CodingTool, CodingAgentConfig, ExternalTool, EmbeddedTool } from './config';
@@ -87,6 +87,38 @@ function buildExternalArgs(
 }
 
 /**
+ * Windows 上 spawn(shell:false) 不解析 PATHEXT，npm 包的 .cmd shim（如 npx.cmd）找不到。
+ * 依次返回候选命令名：[cmd, cmd.cmd, cmd.bat, cmd.exe]，调用方逐个 spawn，
+ * 用第一个不抛同步错误的 child。
+ * 注意：ENOENT 是异步的（'error' 事件），同步 spawn 一般不抛，所以异步 ENOENT
+ * 仍需由 child.on('error') 兜底上报 spawn-failed。
+ * 非 Windows 直接返回 [cmd]。
+ */
+function resolveSpawnCommand(cmd: string): string[] {
+  if (process.platform !== 'win32') return [cmd];
+  return [cmd, `${cmd}.cmd`, `${cmd}.bat`, `${cmd}.exe`];
+}
+
+/**
+ * 按候选命令依次 spawn，返回第一个不抛同步错误的 child；全失败则返回最后的错误。
+ */
+function spawnWithCandidates(
+  cmd: string,
+  args: string[],
+  options: SpawnOptions,
+): { child: ChildProcess } | { child: null; error: Error | null } {
+  let lastSyncError: Error | null = null;
+  for (const candidate of resolveSpawnCommand(cmd)) {
+    try {
+      return { child: spawn(candidate, args, options) };
+    } catch (err) {
+      lastSyncError = err as Error;
+    }
+  }
+  return { child: null, error: lastSyncError };
+}
+
+/**
  * 编码工具进程管理器（external + embedded）
  * - 单一活动进程：external 不持有 child（detached + unref），embedded 持有 child 引用
  * - 状态机通过 emit() 通知订阅者；调用方可在 openTool 返回后立刻 getStatus() 拿到最新快照
@@ -152,17 +184,16 @@ export class CodingAgent {
 
     log.info(`spawn external: ${cmd} ${args.join(' ')} (cwd=${cwd})`);
 
-    let child: ChildProcess;
-    try {
-      child = spawn(cmd, args, {
-        detached: true, stdio: 'ignore', cwd, shell: false,
-      });
-    } catch (err) {
-      const message = (err as Error).message;
+    const spawned = spawnWithCandidates(cmd, args, {
+      detached: true, stdio: 'ignore', cwd, shell: false,
+    });
+    if (!spawned.child) {
+      const message = spawned.error?.message ?? `spawn ${cmd} failed`;
       log.error(`external spawn threw: ${message}`);
       this.emit({ state: 'spawn-failed', message });
       return { ok: false, reason: 'spawn-failed', message };
     }
+    const child = spawned.child;
 
     let resolved = false;
     child.on('error', (err) => {
@@ -211,22 +242,31 @@ export class CodingAgent {
 
     log.info(`spawn embedded: ${tool.command} ${args.join(' ')} (port=${port}, cwd=${cwd})`);
 
-    let child: ChildProcess;
-    try {
-      child = spawn(tool.command, args, {
-        detached: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        cwd,
-        env: { ...process.env, PORT: String(port) },
-      });
-    } catch (err) {
-      const message = (err as Error).message;
+    const spawned = spawnWithCandidates(tool.command, args, {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      cwd,
+      env: { ...process.env, PORT: String(port) },
+    });
+    if (!spawned.child) {
+      const message = spawned.error?.message ?? `spawn ${tool.command} failed`;
       log.error(`embedded spawn threw: ${message}`);
       this.emit({ state: 'spawn-failed', message });
       return { ok: false, reason: 'spawn-failed', message };
     }
+    const child = spawned.child;
 
     this.child = child;
+
+    // spawn 找不到命令时 Node 不 throw 而是异步 emit 'error'；无监听者会变成
+    // uncaughtException（Electron 主进程弹错框），这里兜底转成 spawn-failed 状态。
+    let spawnError: Error | null = null;
+    child.on('error', (err) => {
+      log.warn(`embedded spawn error: ${err.message}`);
+      spawnError = err;
+      this.child = null;
+      this.emit({ state: 'spawn-failed', message: err.message });
+    });
 
     // stderr 累计 buffer：避免 per-chunk slice 丢日志；满 4KB 整段打印并清空
     let stderrBuf = '';
@@ -260,6 +300,11 @@ export class CodingAgent {
 
     const ready = await this.healthCheck(port, 5000);
     if (!ready) {
+      // spawn 已异步失败（如 ENOENT）：spawn-failed 已 emit，不要再覆盖成 timeout
+      if (spawnError) {
+        const message = (spawnError as Error).message;
+        return { ok: false, reason: 'spawn-failed', message };
+      }
       log.error(`health check timeout: port=${port}`);
       this.child?.kill('SIGTERM');
       this.emit({ state: 'timeout' });
