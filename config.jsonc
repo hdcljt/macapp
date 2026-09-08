@@ -37,12 +37,14 @@
   // 每次点"写代码"会弹 dialog 列出这些工具，用户选一个后弹目录选择 dialog
   // type: external ─► spawn detached，外部 IDE 接管
   // type: embedded ─► spawn 内嵌 web 服务，主进程加载到 codingView
+  // type: url      ─► 把 url 直接加载到 codingView（不 spawn；需 http/https；
+  //                  切到不同 origin 工具时 destroy+重建 codingView 让白名单跟随新 origin）
   // 注：embedded 的 args 里 <port> 占位符会在启动时被替换为实际可用端口（4296 被占则自动 +1）
   "codingAgent": {
     "tools": [
       {
         "id": "opencode-ide",
-        "name": "OpenCode IDE",
+        "name": "OpenCode桌面端",
         "type": "external",
         "command": "C:\\Users\\hudc\\AppData\\Local\\Programs\\@opencode-aidesktop\\OpenCode.exe",
         "args": [],
@@ -57,18 +59,26 @@
         "dirMode": "positional"
       },
       {
-        "id": "zcode",
-        "name": "ZCode",
+        "id": "workbuddy",
+        "name": "WorkBuddy",
         "type": "external",
-        "command": "zcode",
+        "command": "D:\\hudc\\AppData\\WorkBuddy\\WorkBuddy.exe",
         "args": [],
         "dirMode": "positional"
       },
       {
-        "id": "minimax-code",
-        "name": "MiniMax Code",
+        "id": "zcode",
+        "name": "ZCode",
         "type": "external",
-        "command": "minimax-code",
+        "command": "D:\\hudc\\AppData\\ZCode Enterprise\\ZCode Enterprise.exe",
+        "args": [],
+        "dirMode": "positional"
+      },
+      {
+        "id": "zhanlu",
+        "name": "湛卢IDE",
+        "type": "external",
+        "command": "D:\\Program Files\\Zhanlu\\Zhanlu.exe",
         "args": [],
         "dirMode": "positional"
       },
@@ -78,19 +88,26 @@
         "description": "内嵌 opencode-ai Web UI",
         "type": "embedded",
         "command": "npx",
-        "args": ["opencode-ai", "web", "--port", "<port>", "--hostname", "127.0.0.1"],
+        "args": ["opencode-ai", "web", "--port", "<port>"],
         "port": 4296,
         "dirMode": "cwd"
       },
       {
         "id": "dsh-web",
-        "name": "DeepSeek DSH",
+        "name": "DeepSeek Harness",
         "description": "内嵌 @deepseek-ai/dsh Web UI",
         "type": "embedded",
         "command": "npx",
-        "args": ["@deepseek-ai/dsh", "web", "--port", "<port>"],
+        "args": ["@deepseek-ai/dsh", "web", "--port", "<port>", "--no-open"],
         "port": 4297,
         "dirMode": "cwd"
+      },
+      {
+        "id": "doubao-agent",
+        "name": "豆包Agent",
+        "description": "内嵌 https://www.doubao.com/chat/ Web UI",
+        "type": "url",
+        "url": "https://www.doubao.com/chat/"
       }
     ]
   }

@@ -130,11 +130,16 @@ function createUrlView(url: string): WebContentsView {
 
 /**
  * codingView：加载内嵌编码工具的 web UI（v1.2 新增）
- * 独立 will-navigate 白名单 `http://127.0.0.1:<urlPort>/`，与 contentView 的
- * allowedOriginPrefix 无关（内嵌工具跑在 localhost 随机端口上）。
+ * will-navigate 白名单按 origin（new URL(url).origin）限定：
+ * - embedded http://127.0.0.1:<port>/
+ * - url 类型 https://<host>/（任意公网域名，按用户配置信任）
+ * 与 contentView 的 allowedOriginPrefix 无关。
+ *
+ * 切工具 origin 变化时由 showCodingView destroy+重建 codingView，
+ * 新建实例的 will-navigate 白名单跟随新 origin（白名单不跨实例累积）。
  */
 function createCodingView(url: string): WebContentsView {
-  const urlPort = new URL(url).port;
+  const urlOrigin = new URL(url).origin;
   const view = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -151,10 +156,25 @@ function createCodingView(url: string): WebContentsView {
     return { action: 'deny' };
   });
   view.webContents.on('will-navigate', (event, navUrl) => {
-    const allowed = `http://127.0.0.1:${urlPort}/`;
-    if (!navUrl.startsWith(allowed)) {
+    // startsWith 前缀匹配：同 origin 所有路径（含 query/hash）都放行
+    if (!navUrl.startsWith(urlOrigin + '/') && navUrl !== urlOrigin) {
       event.preventDefault();
-      log.warn(`codingView will-navigate blocked: ${navUrl}`);
+      log.warn(`codingView will-navigate blocked: ${navUrl} (allowed origin: ${urlOrigin})`);
+    }
+  });
+  // loadURL 失败兜底：url 类型没 spawn 阶段，靠 did-fail-load 检测加载失败；
+  // 失败 → 切回 offlineView + 发 error toast（renderer 侧 coding-toast 已有 spawn-failed 通道，
+  // 此处不重新发明，直接走 ipcMain 通知 offline-app）。
+  view.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    log.error(`codingView did-fail-load: ${errorCode} ${errorDescription} url=${validatedURL}`);
+    if (codingView === view && mainWindow && !mainWindow.isDestroyed()) {
+      setCodingActive(false);
+      showOnly(offlineView ?? contentView);
+      // 通知 renderer 弹错误 toast
+      mainWindow.webContents.send('coding:status', {
+        state: 'spawn-failed',
+        message: `加载失败：${errorDescription} (${errorCode})`,
+      });
     }
   });
 
@@ -167,8 +187,35 @@ function createCodingView(url: string): WebContentsView {
   return view;
 }
 
-/** 显示 codingView：不存在则创建，已存在则复用并 loadURL（端口可能变了） */
+/**
+ * 销毁当前 codingView（切到不同 origin 工具时调用，让白名单跟随新 origin）。
+ *  - removeChildView 把 view 从窗口摘掉，WebContentsView 的渲染进程随之释放
+ *  - codingView 置 null，下次 showCodingView 会重新 createCodingView
+ *  - 注：WebContents 类型没有公开 destroy() 方法（Electron 内部用），仅 removeChildView + GC
+ */
+function destroyCodingView(): void {
+  if (!codingView || !mainWindow || mainWindow.isDestroyed()) {
+    codingView = null;
+    return;
+  }
+  try {
+    mainWindow.contentView.removeChildView(codingView);
+  } catch (err) {
+    log.warn(`removeChildView(codingView) threw: ${(err as Error).message}`);
+  }
+  codingView = null;
+}
+
+/** 显示 codingView：origin 变化时 destroy+重建（同 origin 复用 + loadURL） */
 function showCodingView(url: string): void {
+  const newOrigin = new URL(url).origin;
+  const currentOrigin = codingView
+    ? new URL(codingView.webContents.getURL()).origin
+    : null;
+  if (codingView && currentOrigin && currentOrigin !== newOrigin) {
+    log.info(`showCodingView: origin ${currentOrigin} → ${newOrigin}, destroy + recreate`);
+    destroyCodingView();
+  }
   if (!codingView) codingView = createCodingView(url);
   else codingView.webContents.loadURL(url);
   showOnly(codingView);
@@ -541,8 +588,8 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
         return { ok: false, reason: 'unknown-tool', message: `未找到工具: ${toolId}` };
       }
       const result = await codingAgent.openTool(tool, process.cwd());
-      // view 切换由主进程独占：embedded 就绪后主动加载 url
-      if (result.ok && result.url && tool.type === 'embedded') {
+      // view 切换由主进程独占：embedded 就绪后、url 类型直接加载，都调 showCodingView
+      if (result.ok && result.url && (tool.type === 'embedded' || tool.type === 'url')) {
         showCodingView(result.url);
       }
       return result;
@@ -553,9 +600,12 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
     }
   });
 
-  /** 关闭内嵌 view，切回 offlineView（legacy 模式 fallback contentView） */
+  /** 关闭内嵌 view，切回 offlineView（legacy 模式 fallback contentView）
+   * 同时立即 shutdown codingAgent —— 用户语义"退出工具"=杀 child + 释放端口，
+   * 不应该延迟到下次切换工具才杀（用户报告"再次进入才释放"的体验问题）。 */
   ipcMain.on('coding:close', () => {
     log.info('user triggered close coding view');
+    codingAgent?.shutdown();
     setCodingActive(false);
     showOnly(offlineView ?? contentView);
   });
@@ -565,10 +615,11 @@ function registerIpcHandlers(mode: 'offline-first' | 'legacy', config: LoadedCon
   // 跟 native window 同语义，但走 HTML 按钮（titleBarStyle:hidden 下原生按钮没了）
   // =============================================================================
 
-  /** 「← 返回首页」按钮：等价于 coding:close，回到 offlineView。 */
+  /** 「← 返回首页」按钮：等价于 coding:close，回到 offlineView + 立即 shutdown codingAgent。 */
   ipcMain.on('chrome:home', () => {
     log.info('user clicked home from chrome view');
     if (isCodingActive) {
+      codingAgent?.shutdown();
       setCodingActive(false);
       showOnly(offlineView ?? contentView);
     }

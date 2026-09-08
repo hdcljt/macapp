@@ -154,9 +154,14 @@ export class CodingAgent {
    * 打开工具入口
    * - external → spawnExternal
    * - embedded → spawnEmbedded
+   * - url → 直接返回 ok+url（不 spawn、不发状态；由 main 进程调 showCodingView loadURL）
    */
   async openTool(tool: CodingTool, dir: string): Promise<CodingOpenResult> {
     if (tool.type === 'external') return this.spawnExternal(tool, dir);
+    if (tool.type === 'url') {
+      log.info(`open url tool: ${tool.url}`);
+      return { ok: true, url: tool.url };
+    }
     return this.spawnEmbedded(tool, dir);
   }
 
@@ -228,6 +233,12 @@ export class CodingAgent {
     // child.on('exit') 会异步清空 this.child。spawn 用新 port（pickPort 跳过占用）。
     if (this.child && !this.child.killed) {
       log.info(`switching embedded tool: shutdown previous child first`);
+      // 移除老 child 的 'exit' listener：否则老 child 被 taskkill /f /t 杀（exit code=1）
+      //   会异步触发 listener → emit { state: 'exited' } → UI 弹"工具已退出"toast（用户报告）。
+      //   主动 shutdown 的 exit 是预期行为，不是异常退出，不应该让 UI 看到。
+      // stderrBuf 残余随 listener 一起丢失，但 spawn 阶段已 flush 过 4KB 缓冲，
+      //   主动 shutdown 时残余一般 < 4KB，可接受。
+      this.child.removeAllListeners('exit');
       this.shutdown();
     }
 

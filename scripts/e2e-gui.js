@@ -10,7 +10,11 @@ const fs = require('node:fs');
 
 const TESTS = [
   { toolName: 'OpenCode Web', expectUrlContains: '127.0.0.1' },
+  // url 类型：embedded → url 切工具 origin 变化，codingView 应 destroy+重建
+  { toolName: 'MiniMax Agent', expectUrlContains: 'agent.minimaxi.com' },
   { toolName: 'DSH Web', expectUrlContains: '127.0.0.1' },
+  // url 类型二次进入：origin 不变（仍是 minimaxi.com），应复用 codingView + loadURL
+  { toolName: 'MiniMax Agent', expectUrlContains: 'agent.minimaxi.com' },
   { toolName: 'CodeBuddy', expectUrlContains: null, external: true },
 ];
 
@@ -93,16 +97,52 @@ async function runOne(window, ctx, tool) {
     } else {
       results.push({ tool: tool.toolName, ok: false, msg: 'offlineView 不见了' });
     }
-  } else {
-    // embedded 应切到 codingView
-    const codingPage = pages.find((p) => p.url().includes(tool.expectUrlContains) && !p.url().includes('offline-app'));
-    if (codingPage) {
-      console.log(`✓ embedded: codingView 切到 ${codingPage.url()}`);
-      results.push({ tool: tool.toolName, ok: true, url: codingPage.url() });
-    } else {
-      results.push({ tool: tool.toolName, ok: false, msg: 'codingView 没切到内嵌 web' });
-    }
+    return;
   }
+
+  // embedded 应切到 codingView
+  const codingPage = pages.find((p) => p.url().includes(tool.expectUrlContains) && !p.url().includes('offline-app'));
+  if (!codingPage) {
+    const msg = 'codingView 没切到内嵌 web';
+    console.log(`✗ ${msg}`);
+    results.push({ tool: tool.toolName, ok: false, msg });
+    return;
+  }
+  console.log(`✓ embedded: codingView 切到 ${codingPage.url()}`);
+  results.push({ tool: tool.toolName, ok: true, url: codingPage.url() });
+
+  // 额外验证：点 chromeView 上的「← 返回首页」按钮，view 应该切回 offlineView。
+  // （只有 embedded 工具有这个 view 切换路径，external 不切 view 所以不测。）
+  const chromePage = ctx.pages().find((p) => p.url().includes('chrome.html'));
+  if (!chromePage) {
+    console.log('  ⚠ chromeView page 没找到，跳过 home 按钮验证');
+    return;
+  }
+  const homeBtn = chromePage.locator('#home-btn');
+  // 用 Playwright auto-wait click：它会等到按钮 stable+visible 才点（默认 30s timeout）。
+  // isVisible() 立即检查会错过「setCodingActive 异步切 display」的窗口期。
+  try {
+    await homeBtn.click({ timeout: 5000 });
+    console.log(`  clicked "← 返回首页"`);
+  } catch (err) {
+    console.log(`  ✗ home 按钮不可点: ${err.message.split('\n')[0]}`);
+    results.push({ tool: tool.toolName, ok: false, msg: 'home 按钮不可点（可能被 chromeView 盖住或 display: none）' });
+    return;
+  }
+  await window.waitForTimeout(1000);
+
+  // 验证：点完后 offlineView 应该重新可见（page[0] 仍是 offline-app URL）
+  const pagesAfterHome = ctx.pages();
+  const offlineAfter = pagesAfterHome.find((p) => p.url().includes('offline-app/index.html'));
+  if (offlineAfter) {
+    console.log(`  ✓ home 按钮：view 已切回 offlineView`);
+  } else {
+    console.log(`  ✗ home 按钮：切回 offlineView 失败`);
+    results.push({ tool: tool.toolName, ok: false, msg: 'home 按钮没切回 offlineView' });
+  }
+  // 截一张「点完 home 按钮之后」的图，作为证据
+  const homeShots = await capturePages(ctx, `${label}-after-home`);
+  homeShots.forEach((s) => s.file && screenshots.push(s.file));
 }
 
 (async () => {
@@ -125,15 +165,24 @@ async function runOne(window, ctx, tool) {
 
   app.on('console', (msg) => {
     const text = msg.text();
-    if (text.includes('app.coding') || text.includes('app.renderer')) {
+    // 调试期：打印所有 chrome.* 日志 + 主进程日志
+    if (text.includes('app.coding') || text.includes('app.renderer') || text.includes('[chrome]')) {
       console.log(`[M] ${text}`);
     }
   });
 
-  const window = await app.firstWindow({ timeout: 30000 });
-  console.log(`first window URL: ${window.url()}`);
-
+  // 不依赖 firstWindow：detached devtools 可能抢先创建，导致 firstWindow 不是主窗口。
+  // 从 pages() 里挑主窗口（offline-app 或 contentView 的本地路径）。
+  await app.firstWindow({ timeout: 30000 }); // 等第一个 webContents 出现（确保进程启动）
   const ctx = app.context();
+  let window = null;
+  for (let i = 0; i < 30; i++) {
+    const offlineApp = ctx.pages().find((p) => p.url().includes('offline-app/index.html'));
+    if (offlineApp) { window = offlineApp; break; }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  if (!window) throw new Error('main window (offline-app) not found');
+  console.log(`main window URL: ${window.url()}`);
 
   await window.waitForLoadState('domcontentloaded');
   await window.waitForTimeout(3000);

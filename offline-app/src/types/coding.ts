@@ -31,7 +31,12 @@ export interface EmbeddedTool extends CodingToolBase {
   dirMode: Exclude<DirMode, 'none'>;
 }
 
-export type CodingTool = ExternalTool | EmbeddedTool;
+export interface UrlTool extends CodingToolBase {
+  type: 'url';
+  url: string;
+}
+
+export type CodingTool = ExternalTool | EmbeddedTool | UrlTool;
 
 export type CodingStatus =
   | { state: 'idle' }

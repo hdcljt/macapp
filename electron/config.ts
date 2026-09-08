@@ -47,8 +47,15 @@ export interface EmbeddedTool extends CodingToolBase {
   dirMode: 'positional' | 'cwd';
 }
 
-/** 编码工具（外部 IDE / 内嵌 Web） */
-export type CodingTool = ExternalTool | EmbeddedTool;
+/** URL 链接工具：直接把 url 加载到 codingView（不 spawn、不端口探测） */
+export interface UrlTool extends CodingToolBase {
+  type: 'url';
+  /** 要加载的 url（http/https；校验通过 new URL() + 协议头） */
+  url: string;
+}
+
+/** 编码工具（外部 IDE / 内嵌 Web / URL 链接） */
+export type CodingTool = ExternalTool | EmbeddedTool | UrlTool;
 
 /** 编码工具配置 */
 export interface CodingAgentConfig {
@@ -256,13 +263,16 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
     if (t.description !== undefined && typeof t.description !== 'string') {
       toolErrors.push(`${tag}.description 必须是字符串（可选）`);
     }
-    if (t.type !== 'external' && t.type !== 'embedded') {
-      toolErrors.push(`${tag}.type 必须是 'external' 或 'embedded'`);
+    if (t.type !== 'external' && t.type !== 'embedded' && t.type !== 'url') {
+      toolErrors.push(`${tag}.type 必须是 'external'|'embedded'|'url'`);
       errors.push(...toolErrors);
       return;
     }
-    if (typeof t.command !== 'string' || t.command.length === 0) {
-      toolErrors.push(`${tag}.command 必须是非空字符串`);
+    // url 类型不要求 command（直接给 url 就行）；external/embedded 必填 command
+    if (t.type !== 'url') {
+      if (typeof t.command !== 'string' || t.command.length === 0) {
+        toolErrors.push(`${tag}.command 必须是非空字符串`);
+      }
     }
 
     if (t.type === 'external') {
@@ -286,7 +296,7 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
           dirMode: t.dirMode as 'positional' | 'cwd' | 'none',
         });
       }
-    } else {
+    } else if (t.type === 'embedded') {
       const allowedDir = ['positional', 'cwd'];
       if (typeof t.dirMode !== 'string' || !allowedDir.includes(t.dirMode)) {
         toolErrors.push(`${tag}.dirMode 必须是 'positional'|'cwd'`);
@@ -302,6 +312,35 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
           type: 'embedded', command: t.command as string,
           args: t.args as string[], port: t.port as number,
           dirMode: t.dirMode as 'positional' | 'cwd',
+        });
+      }
+    } else {
+      // url 类型：校验 url 是合法 http(s) URL
+      if (typeof t.url !== 'string' || t.url.length === 0) {
+        toolErrors.push(`${tag}.url 必须是非空字符串`);
+      } else {
+        let parsed: URL;
+        try {
+          parsed = new URL(t.url);
+        } catch {
+          toolErrors.push(`${tag}.url 必须是合法 URL (实际: "${t.url}")`);
+          parsed = null as unknown as URL;
+        }
+        if (parsed && (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+          toolErrors.push(`${tag}.url 协议必须是 http: 或 https: (实际: ${parsed.protocol})`);
+        }
+      }
+      // url 类型不能同时设 command/path/args/port/dirMode（语义冲突）
+      if (t.command !== undefined) toolErrors.push(`${tag}.url 类型不能设 command`);
+      if (t.path !== undefined) toolErrors.push(`${tag}.url 类型不能设 path`);
+      if (t.args !== undefined) toolErrors.push(`${tag}.url 类型不能设 args`);
+      if (t.port !== undefined) toolErrors.push(`${tag}.url 类型不能设 port`);
+      if (t.dirMode !== undefined) toolErrors.push(`${tag}.url 类型不能设 dirMode`);
+      if (toolErrors.length === 0) {
+        tools.push({
+          id: t.id as string, name: t.name as string,
+          ...(t.description !== undefined ? { description: t.description as string } : {}),
+          type: 'url', url: t.url as string,
         });
       }
     }
