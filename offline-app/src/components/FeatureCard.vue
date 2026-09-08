@@ -2,7 +2,9 @@
 /**
  * FeatureCard — 单个功能卡片(纯展示,无 router/store)
  *
- * 父组件传入 card 数据;点击只 emit('click'),无下游行为(离线场景)。
+ * 父组件传入 card 数据;点击 emit('click', card) 透传完整 card 对象，
+ * 由 FeatureSection → App.vue 根据 card.title 决定后续动作
+ * (如「写代码」触发 openCodingDialog，其他暂留 console.log 占位)。
  */
 import type { FeatureCard } from '@/data/assistantFeatures'
 
@@ -10,13 +12,13 @@ defineProps<{
   card: FeatureCard
 }>()
 
-defineEmits<{
-  click: []
+const emit = defineEmits<{
+  click: [card: FeatureCard]
 }>()
 </script>
 
 <template>
-  <button type="button" class="feature-card" @click="$emit('click')">
+  <button type="button" class="feature-card" @click="emit('click', card)">
     <div
       class="feature-icon"
       :style="{ backgroundColor: card.iconBg }"

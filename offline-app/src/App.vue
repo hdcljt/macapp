@@ -1,12 +1,20 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue';
 import TopBar from '@/components/TopBar.vue';
 import SideDrawer from '@/components/SideDrawer.vue';
 import AppCarousel from '@/components/AppCarousel.vue';
 import FeatureSection from '@/components/FeatureSection.vue';
 import BottomTabBar from '@/components/BottomTabBar.vue';
 import InputBar from '@/components/InputBar.vue';
+import ToolPickerDialog from '@/components/ToolPickerDialog.vue';
 import { aiApps, featureSections, bottomTabs } from '@/data/assistantFeatures';
+import type { FeatureCard } from '@/data/assistantFeatures';
 import { useUiStore } from '@/stores/ui';
+import {
+  initCodingDialog, disposeCodingDialog,
+  openCodingDialog, onToolPicked, onToolPickCancelled,
+  visible, tools,
+} from '@/coding-dialog';
 
 const ui = useUiStore();
 
@@ -14,12 +22,25 @@ const ui = useUiStore();
 function onMenu() { ui.openDrawer(); }
 function onNewChat() { console.log('new chat (offline)'); }
 function onAppSelect(id: string) { ui.setActiveApp(id); }
-function onTabSelect(id: string) { ui.setActiveTab(id); }
+function onTabSelect(id: string) {
+  ui.setActiveTab(id);
+  // code tab：直接打开编码工具选择 dialog
+  if (id === 'code') openCodingDialog();
+}
+function onCardClick(card: FeatureCard) {
+  // 「写代码」卡片：走 dialog 流程
+  if (card.title === '写代码') openCodingDialog();
+  else console.log(`card click (offline): ${card.title}`);
+}
 function onSend(_text: string) { console.log('send (offline)'); }
 function onVoiceStart() { console.log('voice start (offline)'); }
 function onVoiceEnd() { console.log('voice end (offline)'); }
 function onCamera() { console.log('camera (offline)'); }
 function onMore() { console.log('more (offline)'); }
+
+// onMounted 挂 status 订阅（HMR 友好：dispose 在 onUnmounted 调）
+onMounted(() => initCodingDialog());
+onUnmounted(() => disposeCodingDialog());
 </script>
 
 <template>
@@ -41,6 +62,7 @@ function onMore() { console.log('more (offline)'); }
           v-for="section in featureSections"
           :key="section.id"
           :section="section"
+          @card-click="onCardClick"
         />
       </div>
     </main>
@@ -55,6 +77,14 @@ function onMore() { console.log('more (offline)'); }
       @voice-end="onVoiceEnd"
       @camera="onCamera"
       @more="onMore"
+    />
+
+    <!-- 工具选择 dialog（全局可见，受 coding-dialog 单例 ref 控制） -->
+    <ToolPickerDialog
+      :visible="visible"
+      :tools="tools"
+      @select="onToolPicked"
+      @cancel="onToolPickCancelled"
     />
   </div>
 </template>

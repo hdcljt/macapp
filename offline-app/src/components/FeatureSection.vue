@@ -3,13 +3,18 @@
  * FeatureSection — 功能区块(虚线边框 + 2x2 卡片网格)
  *
  * 父组件通过 section prop 传入 FeatureSection 数据,
- * 内部仅展示,无外部依赖。
+ * FeatureCard @click 透传为 emit('cardClick', card),由 App.vue 决定路由
+ * (目前「写代码」触发 openCodingDialog，其他暂留 console.log 占位)。
  */
-import type { FeatureSection } from '@/data/assistantFeatures'
-import FeatureCard from './FeatureCard.vue'
+import type { FeatureSection, FeatureCard } from '@/data/assistantFeatures'
+import FeatureCardComponent from './FeatureCard.vue'
 
 defineProps<{
   section: FeatureSection
+}>()
+
+const emit = defineEmits<{
+  cardClick: [card: FeatureCard]
 }>()
 </script>
 
@@ -26,10 +31,11 @@ defineProps<{
 
     <!-- 功能卡片网格 2x2 -->
     <div class="card-grid">
-      <FeatureCard
+      <FeatureCardComponent
         v-for="card in section.cards"
         :key="card.title"
         :card="card"
+        @click="emit('cardClick', card)"
       />
     </div>
   </section>
