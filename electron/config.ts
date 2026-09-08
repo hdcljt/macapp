@@ -28,7 +28,7 @@ export interface ExternalTool extends CodingToolBase {
   command: string;
   /** 完整可执行路径；非空时跳过 PATH 探测 */
   path?: string;
-  /** 命令参数；嵌入式模式下占位符 '<port>' spawn 时替换 */
+  /** 命令参数；external 模式直接 spawn 透传（不替换占位符） */
   args?: string[];
   /** 目录怎么传给命令 */
   dirMode: 'positional' | 'cwd' | 'none';
@@ -43,7 +43,7 @@ export interface EmbeddedTool extends CodingToolBase {
   args: string[];
   /** 内嵌 web 监听端口；占用时自动探测 port+1 ~ port+4 */
   port: number;
-  /** 目录怎么传给命令 */
+  /** 目录怎么传给命令；embedded 不支持 'none' */
   dirMode: 'positional' | 'cwd';
 }
 
@@ -52,7 +52,7 @@ export type CodingTool = ExternalTool | EmbeddedTool;
 
 /** 编码工具配置 */
 export interface CodingAgentConfig {
-  /** 可选编码工具列表（external IDE + embedded Web） */
+  /** 编码工具列表（external IDE + embedded Web） */
   tools: CodingTool[];
 }
 
