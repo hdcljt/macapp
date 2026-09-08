@@ -278,9 +278,9 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
       }
       if (toolErrors.length === 0) {
         tools.push({
-          id: t.id, name: t.name,
+          id: t.id as string, name: t.name as string,
           ...(t.description !== undefined ? { description: t.description as string } : {}),
-          type: 'external', command: t.command,
+          type: 'external', command: t.command as string,
           ...(t.path !== undefined ? { path: t.path as string } : {}),
           ...(t.args !== undefined ? { args: t.args as string[] } : { args: [] }),
           dirMode: t.dirMode as 'positional' | 'cwd' | 'none',
@@ -297,9 +297,9 @@ function validateCodingTools(raw: unknown, configPath: string): CodingTool[] {
       }
       if (toolErrors.length === 0) {
         tools.push({
-          id: t.id, name: t.name,
+          id: t.id as string, name: t.name as string,
           ...(t.description !== undefined ? { description: t.description as string } : {}),
-          type: 'embedded', command: t.command,
+          type: 'embedded', command: t.command as string,
           args: t.args as string[], port: t.port as number,
           dirMode: t.dirMode as 'positional' | 'cwd',
         });
