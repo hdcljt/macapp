@@ -94,7 +94,6 @@ function buildExternalArgs(
 export class CodingAgent {
   private status: CodingStatus = { state: 'idle' };
   private child: ChildProcess | null = null;
-  private currentToolId: string | null = null;
   private listeners = new Set<(s: CodingStatus) => void>();
 
   constructor(private cfg: CodingAgentConfig) {}
@@ -138,7 +137,13 @@ export class CodingAgent {
    * launching-external 持续到下次 openTool 或 app 退出，不再 setImmediate 回 idle。
    */
   private spawnExternal(tool: ExternalTool, dir: string): CodingOpenResult {
-    this.currentToolId = tool.id;
+    // 存量检测：embedded 在跑时打开 external 会让状态机与实际进程不一致，直接拒绝
+    if (this.child && !this.child.killed) {
+      const message = '已有内嵌工具在运行，请先关闭';
+      log.warn(message);
+      this.emit({ state: 'spawn-failed', message });
+      return { ok: false, reason: 'spawn-failed', message };
+    }
 
     const args = buildExternalArgs(tool.args ?? [], dir, tool.dirMode);
 
@@ -185,8 +190,6 @@ export class CodingAgent {
    *   health check 失败时主动 kill 防止僵尸进程。
    */
   private async spawnEmbedded(tool: EmbeddedTool, dir: string): Promise<CodingOpenResult> {
-    this.currentToolId = tool.id;
-
     // 二次调用检测：embedded 模式单一活动进程，已有 child 在跑则拒绝
     if (this.child && !this.child.killed) {
       const message = '已有内嵌工具在运行，请先关闭';
@@ -230,11 +233,7 @@ export class CodingAgent {
     const STDERR_BUF_MAX = 4 * 1024;
     child.stderr?.on('data', (chunk: Buffer) => {
       stderrBuf += chunk.toString();
-      if (stderrBuf.length > STDERR_BUF_MAX) {
-        stderrBuf = stderrBuf.slice(-STDERR_BUF_MAX);
-      }
-      const text = stderrBuf.trimEnd();
-      if (text.length > 0) {
+      if (stderrBuf.length >= STDERR_BUF_MAX) {
         log.warn(`[${tool.id} stderr] ${stderrBuf}`);
         stderrBuf = '';
       }
@@ -242,9 +241,14 @@ export class CodingAgent {
 
     this.emit({ state: 'spawning-embedded', toolId: tool.id });
 
-    // 用 closure 捕获 spawn 时的 toolId，避免后续 openTool 覆盖 currentToolId 导致 exited event toolId 错误
+    // 用 closure 捕获 spawn 时的 toolId，避免后续 openTool 覆盖导致 exited event toolId 错误
     const toolIdAtSpawn = tool.id;
     child.on('exit', (code, signal) => {
+      // flush 未满 4KB 的残余 stderr，避免退出时丢诊断信息
+      if (stderrBuf.length > 0) {
+        log.warn(`[${toolIdAtSpawn} stderr] ${stderrBuf}`);
+        stderrBuf = '';
+      }
       log.info(`embedded exit: code=${code} signal=${signal}`);
       this.child = null;
       if (code === 0 || code === null) {
@@ -259,7 +263,8 @@ export class CodingAgent {
       log.error(`health check timeout: port=${port}`);
       this.child?.kill('SIGTERM');
       this.emit({ state: 'timeout' });
-      setImmediate(() => this.emit({ state: 'idle' }));
+      // 不 setImmediate emit idle：kill('SIGTERM') 会触发上面的 child.on('exit')，
+      // 由 exit listener 异步 emit idle/exited，避免重复 emit 造成状态机 race
       return { ok: false, reason: 'timeout', message: '工具启动超时（5s 未就绪）' };
     }
 
@@ -291,20 +296,22 @@ export class CodingAgent {
    * 关闭当前 embedded 子进程
    * - external 已 unref，不需要处理
    * - SIGTERM 后用 setTimeout 兜底 2s SIGKILL（异步，不阻塞主线程）
+   * - 判活用 exitCode/signalCode 均为 null（child.killed 只表示信号已发出，SIGTERM 后立刻为 true）
+   * - child.once('exit') 清理 timeout，避免对已退出进程做无意义的 SIGKILL
    * - setTimeout.unref() 不阻止进程退出
-   * - 同步返回：child.once('exit') 在 SIGTERM 后会异步 emit exited
    */
   shutdown(): void {
     if (!this.child || this.child.killed) return;
     const child = this.child;
     log.info('shutdown: killing embedded child');
-    child.kill('SIGTERM');
     const fallback = setTimeout(() => {
-      if (!child.killed) {
+      if (child.exitCode === null && child.signalCode === null) {
         log.warn('shutdown: SIGTERM timeout, sending SIGKILL');
         child.kill('SIGKILL');
       }
     }, 2000);
     fallback.unref();
+    child.once('exit', () => clearTimeout(fallback));
+    child.kill('SIGTERM');
   }
 }
